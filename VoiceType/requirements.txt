@@ -1,0 +1,35 @@
+# VoiceType — macOS Voice-to-Text Menubar App
+# Install with: pip install -r requirements.txt
+
+# Menubar app framework
+rumps==0.4.0
+
+# Global hotkey listener (hold/release detection)
+pynput==1.7.6
+
+# Microphone audio capture
+sounddevice==0.4.6
+
+# Audio processing
+numpy==1.26.0
+scipy==1.11.3
+
+# Overlay UI (smooth 60fps animations on macOS)
+PyQt6==6.6.0
+
+# macOS Accessibility API — detect focused text fields
+pyobjc-framework-ApplicationServices
+pyobjc-framework-Cocoa
+
+# OpenAI — Whisper API transcription + GPT-4o-mini cleanup
+openai==1.54.0
+
+# Clipboard access
+pyperclip==1.8.2
+
+# App packaging (build distributable .app bundle)
+py2app==0.28.7
+
+# --- OPTIONAL: Local offline Whisper (uncomment to enable) ---
+# openai-whisper==20231117
+# torch==2.1.0
