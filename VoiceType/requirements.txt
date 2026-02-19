@@ -24,6 +24,9 @@ pyobjc-framework-Cocoa
 # OpenAI — Whisper API transcription + GPT-4o-mini cleanup
 openai==1.54.0
 
+# HTTP client for Groq API (ultra-fast Whisper transcription)
+requests>=2.31.0
+
 # Clipboard access
 pyperclip==1.8.2
 
