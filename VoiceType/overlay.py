@@ -954,11 +954,52 @@ class OverlayWindow(QWidget):
         self._pill_shadow.setOffset(0, 8)
         self._pill_shadow.setColor(QColor(217, 79, 61, 36))  # rgba(217,79,61,0.14)
 
-    # ── Particle stream ────────────────────────────────────
+    # ── Connector gradient pulse ─────────────────────────────
 
-    def _update_particle_canvas(self):
-        """Update the particle stream's canvas height to match the connector."""
-        self._particle_stream._canvas_h = CONNECTOR_HEIGHT + 40
+    def _start_streaming(self):
+        """Start the gradient pulse flowing down the connector."""
+        if self._streaming:
+            return
+        self._streaming = True
+        self._pulse_phase = 0.0
+        self._pulse_opacity = 0.0
+        self._pulse_timer.start()
+        # Fade in
+        self._pulse_fade = QPropertyAnimation(self, b"pulse_opacity")
+        self._pulse_fade.setDuration(300)
+        self._pulse_fade.setStartValue(0.0)
+        self._pulse_fade.setEndValue(1.0)
+        self._pulse_fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._pulse_fade.start()
+
+    def _stop_streaming(self):
+        """Fade out and stop the gradient pulse."""
+        if not self._streaming:
+            return
+        self._streaming = False
+        self._pulse_fade = QPropertyAnimation(self, b"pulse_opacity")
+        self._pulse_fade.setDuration(300)
+        self._pulse_fade.setStartValue(self._pulse_opacity)
+        self._pulse_fade.setEndValue(0.0)
+        self._pulse_fade.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._pulse_fade.finished.connect(self._pulse_timer.stop)
+        self._pulse_fade.start()
+
+    def _get_pulse_opacity(self) -> float:
+        return self._pulse_opacity
+
+    def _set_pulse_opacity(self, val: float):
+        self._pulse_opacity = val
+        self.update()
+
+    pulse_opacity = pyqtProperty(float, _get_pulse_opacity, _set_pulse_opacity)
+
+    def _tick_pulse(self):
+        """Advance pulse phase — 0.45s per full cycle, matching Scribr_Pill.html."""
+        self._pulse_phase += 16.0 / 450.0  # 16ms tick / 450ms cycle
+        if self._pulse_phase >= 1.0:
+            self._pulse_phase -= 1.0
+        self.update()
 
     # ── Animation helpers ───────────────────────────────────
 
