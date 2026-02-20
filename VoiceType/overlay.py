@@ -4,7 +4,6 @@
 # Pill + connector + notepad — warm coral accent, surface bg.
 
 import math
-import random
 import time
 from enum import Enum, auto
 
@@ -13,6 +12,7 @@ from PyQt6.QtCore import (
     QParallelAnimationGroup,
     QPointF,
     QPropertyAnimation,
+    QRectF,
     Qt,
     QTimer,
     pyqtProperty,
@@ -20,9 +20,7 @@ from PyQt6.QtCore import (
     pyqtSlot,
 )
 from PyQt6.QtGui import (
-    QBrush,
     QColor,
-    QFont,
     QLinearGradient,
     QPainter,
     QPainterPath,
@@ -51,7 +49,6 @@ from style import (
     PILL_HEIGHT,
     PILL_PADDING_H,
     RADIUS_CARD,
-    RADIUS_PILL,
     font_sans,
     font_serif,
     qcolor_to_rgba,
@@ -347,269 +344,6 @@ class BlinkingCursor(QWidget):
         p.setBrush(self._color)
         p.drawRoundedRect(0, 0, 2, 15, 1, 1)
         p.end()
-
-
-# ════════════════════════════════════════════════════════════
-#  PARTICLE STREAM — connector animation
-# ════════════════════════════════════════════════════════════
-
-STREAM_GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,!?-"
-STREAM_WIDTH = 160
-STREAM_PARTICLE_COUNT = 14
-
-
-class _StreamParticle:
-    """Single glyph that falls from pill to notepad."""
-
-    def __init__(self, canvas_h: float, initial: bool = True):
-        self.canvas_h = canvas_h
-        self.reset(initial)
-
-    def reset(self, initial: bool = False):
-        t = theme()
-        self.x = STREAM_WIDTH / 2 + (random.random() - 0.5) * 28
-        self.y = random.random() * self.canvas_h if initial else -4.0
-        self.vy = 3.0 + random.random() * 3.5
-        self.alpha = 0.0
-        self.target_alpha = 0.4 + random.random() * 0.55
-        self.size = 8 + random.random() * 5
-        self.glyph = random.choice(STREAM_GLYPHS)
-        self.glyph_timer = 0
-        self.glyph_interval = 4 + random.randint(0, 7)
-        self.trail: list[tuple[float, float, float]] = []
-        self.trail_length = 3 + random.randint(0, 2)
-        bright = random.random() > 0.8
-        # Use coral/red tones instead of blue
-        self.color = (
-            QColor(t.text.red(), t.text.green(), t.text.blue())
-            if bright
-            else QColor(t.red.red(), t.red.green(), t.red.blue())
-        )
-        self.glow_color = (
-            QColor(t.red_soft.red(), t.red_soft.green(), t.red_soft.blue(), 204)
-            if bright
-            else QColor(t.red.red(), t.red.green(), t.red.blue(), 179)
-        )
-        self.life = 0
-        self.max_life = (self.canvas_h / self.vy) * (0.8 + random.random() * 0.4)
-
-    def update(self):
-        self.trail.insert(0, (self.x, self.y, self.alpha))
-        if len(self.trail) > self.trail_length:
-            self.trail.pop()
-
-        self.y += self.vy
-        self.x += (random.random() - 0.5) * 0.4
-        self.life += 1
-
-        progress = self.life / max(self.max_life, 1)
-        if progress < 0.15:
-            self.alpha = (progress / 0.15) * self.target_alpha
-        elif progress > 0.75:
-            self.alpha = ((1 - progress) / 0.25) * self.target_alpha
-        else:
-            self.alpha = self.target_alpha
-
-        self.glyph_timer += 1
-        if self.glyph_timer >= self.glyph_interval:
-            self.glyph = random.choice(STREAM_GLYPHS)
-            self.glyph_timer = 0
-
-        if self.y > self.canvas_h + 10 or self.life >= self.max_life:
-            self.reset()
-
-
-class _BurstPacket:
-    """Bright dot that shoots down the connector."""
-
-    def __init__(self, canvas_h: float):
-        self.canvas_h = canvas_h
-        self.x = STREAM_WIDTH / 2 + (random.random() - 0.5) * 10
-        self.y = 0.0
-        self.vy = 5.5 + random.random() * 4.0
-        self.radius = 2 + random.random() * 1.5
-        self.alpha = 0.9
-        self.done = False
-
-    def update(self):
-        self.y += self.vy
-        self.alpha -= 0.025
-        if self.y > self.canvas_h or self.alpha <= 0:
-            self.done = True
-
-
-class ParticleStreamWidget(QWidget):
-    """Canvas-like widget that renders streaming glyphs from pill to notepad.
-    Matches the Scribr particle stream animation."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedWidth(STREAM_WIDTH)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.hide()  # Never visible — rendered by parent's paintEvent
-        self._particles: list[_StreamParticle] = []
-        self._bursts: list[_BurstPacket] = []
-        self._burst_timer = 0
-        self._active = False
-        self._opacity = 0.0
-        self._target_opacity = 0.0
-        self._canvas_h = CONNECTOR_HEIGHT + 40
-
-        self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(16)  # ~60fps
-        self._tick_timer.timeout.connect(self._tick)
-
-    # Animatable opacity
-    def _get_stream_opacity(self) -> float:
-        return self._opacity
-
-    def _set_stream_opacity(self, val: float):
-        self._opacity = val
-        self.update()
-
-    stream_opacity = pyqtProperty(float, _get_stream_opacity, _set_stream_opacity)
-
-    def start(self):
-        if self._active:
-            return
-        self._active = True
-        h = self._canvas_h
-        self._particles = [_StreamParticle(h, initial=True) for _ in range(STREAM_PARTICLE_COUNT)]
-        self._bursts.clear()
-        self._burst_timer = 0
-        self._opacity = 0.0
-        self._target_opacity = 1.0
-        self._tick_timer.start()
-
-        # Fade in
-        self._fade_anim = QPropertyAnimation(self, b"stream_opacity")
-        self._fade_anim.setDuration(400)
-        self._fade_anim.setStartValue(0.0)
-        self._fade_anim.setEndValue(1.0)
-        self._fade_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._fade_anim.start()
-
-    def stop(self):
-        if not self._active:
-            return
-        self._active = False
-
-        # Fade out then hide
-        self._fade_anim = QPropertyAnimation(self, b"stream_opacity")
-        self._fade_anim.setDuration(300)
-        self._fade_anim.setStartValue(self._opacity)
-        self._fade_anim.setEndValue(0.0)
-        self._fade_anim.setEasingCurve(QEasingCurve.Type.InCubic)
-        self._fade_anim.finished.connect(self._on_fade_out_done)
-        self._fade_anim.start()
-
-    def _on_fade_out_done(self):
-        self._tick_timer.stop()
-        self._particles.clear()
-        self._bursts.clear()
-
-    def _tick(self):
-        h = self._canvas_h
-        for pt in self._particles:
-            pt.canvas_h = h
-            pt.update()
-
-        self._burst_timer += 1
-        if self._burst_timer % 40 == 0 and self._active:
-            self._bursts.append(_BurstPacket(h))
-        self._bursts = [b for b in self._bursts if not b.done]
-        for b in self._bursts:
-            b.update()
-
-        # Trigger parent repaint (particles rendered in parent's paintEvent)
-        if self.parent():
-            self.parent().update()
-
-    def render(self, p: QPainter, x: float, y: float, w: float, h: float):
-        """Paint particles into an external QPainter at the given rect.
-        Called from OverlayWindow.paintEvent BEFORE the pill is drawn,
-        so particles appear behind the pill and notepad."""
-        if self._opacity < 0.01 or not self._particles:
-            return
-
-        t = theme()
-
-        p.save()
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-
-        cx = x + w / 2
-
-        # Center tube glow line — red gradient instead of blue
-        p.setOpacity(self._opacity)
-        line_grad = QLinearGradient(QPointF(cx, y), QPointF(cx, y + h))
-        red_r, red_g, red_b = t.red.red(), t.red.green(), t.red.blue()
-        line_grad.setColorAt(0.0, QColor(red_r, red_g, red_b, 0))
-        line_grad.setColorAt(0.2, QColor(red_r, red_g, red_b, 64))
-        line_grad.setColorAt(0.8, QColor(red_r, red_g, red_b, 64))
-        line_grad.setColorAt(1.0, QColor(red_r, red_g, red_b, 0))
-        p.setPen(QPen(QBrush(line_grad), 1))
-        p.drawLine(QPointF(cx, y), QPointF(cx, y + h))
-
-        x_off = x + (w - STREAM_WIDTH) / 2
-
-        # Draw burst packets (stretched vertically for motion blur)
-        # Use red/coral tones instead of blue
-        burst_glow = QColor(red_r, red_g, red_b)
-        p.setPen(Qt.PenStyle.NoPen)
-        for b in self._bursts:
-            bx = x_off + b.x
-            streak_len = b.vy * 4
-            for step in range(6):
-                frac = step / 5.0
-                sy = y + b.y - streak_len * frac
-                sa = b.alpha * (1.0 - frac) * 0.4
-                p.setOpacity(self._opacity * sa)
-                p.setBrush(burst_glow)
-                p.drawEllipse(QPointF(bx, sy), b.radius * 2, b.radius * 2)
-            p.setOpacity(self._opacity * b.alpha)
-            p.setBrush(QColor(t.text.red(), t.text.green(), t.text.blue()))
-            p.drawEllipse(QPointF(bx, y + b.y), b.radius, b.radius)
-
-        # Draw particles with heavy motion blur
-        BLUR_STEPS = 8
-        BLUR_SPREAD = 28.0  # px of vertical smear above the glyph
-
-        for pt in self._particles:
-            gx = x_off + pt.x - pt.size * 0.3
-            gy = y + pt.y
-
-            fnt = QFont("Plus Jakarta Sans")
-            if not fnt.exactMatch():
-                fnt = QFont("Inter")
-            fnt.setPixelSize(int(pt.size))
-            fnt.setWeight(QFont.Weight.Medium)
-            p.setFont(fnt)
-
-            # Motion blur copies (drawn above the glyph, fading out)
-            for step in range(BLUR_STEPS, 0, -1):
-                frac = step / BLUR_STEPS
-                blur_y = gy - BLUR_SPREAD * frac
-                blur_alpha = pt.alpha * (1.0 - frac) * 0.18
-                p.setOpacity(self._opacity * blur_alpha)
-                p.setPen(QPen(pt.glow_color))
-                p.drawText(QPointF(gx, blur_y), pt.glyph)
-
-            # Glow halo (offset copies)
-            p.setOpacity(self._opacity * pt.alpha * 0.6)
-            p.setPen(QPen(pt.glow_color))
-            p.drawText(QPointF(gx - 0.5, gy + 0.5), pt.glyph)
-            p.drawText(QPointF(gx + 0.5, gy - 0.5), pt.glyph)
-
-            # Core glyph
-            p.setOpacity(self._opacity * pt.alpha * 0.8)
-            p.setPen(QPen(pt.color))
-            p.drawText(QPointF(gx, gy), pt.glyph)
-
-        p.restore()
-
-    def paintEvent(self, event):
-        pass  # Rendering handled by parent's paintEvent via render()
 
 
 # ════════════════════════════════════════════════════════════
