@@ -1,4 +1,4 @@
-# VoiceType — macOS Voice-to-Text Menubar App
+# Scribr — macOS Voice-to-Text Menubar App
 # Install with: pip install -r requirements.txt
 
 # Menubar app framework

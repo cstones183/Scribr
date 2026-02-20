@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: voicetype
+Version: 1.0.0
+Summary: macOS voice-to-text menubar app
+Requires-Python: >=3.12
+Requires-Dist: PyQt6>=6.6
+Requires-Dist: rumps>=0.4
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: ruff>=0.9; extra == "dev"
+Requires-Dist: mypy>=1.14; extra == "dev"

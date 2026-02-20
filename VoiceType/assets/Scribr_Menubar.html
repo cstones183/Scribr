@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scribr — Menubar & Settings</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; -webkit-font-smoothing:antialiased; }
+
+:root {
+  --bg:         #F7F5F2;
+  --surface:    #FFFFFF;
+  --surface-2:  #EFEDE9;
+  --surface-3:  #E8E4DF;
+  --border:     #E2DED8;
+  --border-2:   #D4CEC7;
+  --text:       #2D2926;
+  --text-mid:   #6B6560;
+  --text-light: #A8A29C;
+  --red:        #D94F3D;
+  --red-soft:   #F5EAE8;
+  --red-mid:    rgba(217,79,61,0.15);
+  --red-border: rgba(217,79,61,0.22);
+  --red-focus:  rgba(217,79,61,0.45);
+  --serif:      'Lora', Georgia, serif;
+  --sans:       'Plus Jakarta Sans', sans-serif;
+  --r:          12px;
+  --r-sm:       8px;
+  --r-xs:       6px;
+  --rp:         999px;
+}
+
+/* ── Dark mode — warm espresso darks ── */
+[data-theme="dark"] {
+  --bg:         #1A1714;
+  --surface:    #242019;
+  --surface-2:  #2E2A23;
+  --surface-3:  #38332B;
+  --border:     #3D3830;
+  --border-2:   #4A443C;
+  --text:       #F0EDE8;
+  --text-mid:   #A39B92;
+  --text-light: #6B6359;
+  --red:        #E05A47;
+  --red-soft:   rgba(224,90,71,0.14);
+  --red-mid:    rgba(224,90,71,0.18);
+  --red-border: rgba(224,90,71,0.28);
+  --red-focus:  rgba(224,90,71,0.4);
+}
+
+/* ── Theme toggle ── */
+.theme-toggle {
+  position: fixed; top: 20px; right: 20px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px 6px 10px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--rp);
+  font-size: 12px; font-weight: 500; font-family: var(--sans);
+  color: var(--text-mid); cursor: pointer;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+  transition: all 0.2s; z-index: 999;
+}
+.theme-toggle:hover { background: var(--surface-2); color: var(--text); }
+.theme-toggle .tog-icon { font-size: 14px; }
+
+/* ── Dark-specific overrides ── */
+[data-theme="dark"] .dd {
+  box-shadow: 0 16px 48px rgba(0,0,0,0.55), 0 3px 10px rgba(0,0,0,0.35);
+}
+[data-theme="dark"] .sw {
+  box-shadow: 0 12px 48px rgba(0,0,0,0.5), 0 3px 10px rgba(0,0,0,0.3);
+}
+[data-theme="dark"] .row:hover { background: var(--surface-3); }
+[data-theme="dark"] .f-wrap { background: var(--surface-3); }
+[data-theme="dark"] .f-sel  { background: var(--surface-3); color: var(--text); }
+[data-theme="dark"] .seg    { background: var(--surface-3); }
+[data-theme="dark"] .seg-b.active { background: var(--surface-2); }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 48px 24px 80px;
+  transition: background 0.3s, color 0.3s;
+}
+
+/* ── page header ── */
+.pg-logo {
+  display:flex; align-items:center; gap:10px; margin-bottom:6px;
+}
+.pg-bubble {
+  width:30px; height:30px; background:var(--red); border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 3px 10px rgba(217,79,61,0.28);
+}
+.pg-wordmark {
+  font-family:var(--serif); font-size:22px; font-weight:600;
+  color:var(--text); letter-spacing:-0.02em;
+}
+.pg-wordmark span { color:var(--red); }
+.pg-sub {
+  font-size:11px; color:var(--text-light); letter-spacing:0.15em;
+  text-transform:uppercase; font-weight:500; margin-bottom:40px; text-align:center;
+}
+
+/* ── section label ── */
+.sec {
+  font-size:9px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase;
+  color:var(--red); margin-bottom:12px; width:100%; max-width:560px;
+  display:flex; align-items:center; gap:10px;
+}
+.sec::after { content:''; flex:1; height:1px; background:var(--border); }
+
+/* ════════════════════════════════════
+   macOS MENU BAR
+════════════════════════════════════ */
+.mac-bar {
+  width:100%; max-width:560px; height:22px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:6px 6px 0 0;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 10px; box-shadow:0 1px 3px rgba(45,41,38,0.06);
+}
+.bar-l { display:flex; align-items:center; gap:10px; font-size:11px; font-weight:600; color:var(--text-mid); }
+.bar-r { display:flex; align-items:center; gap:8px; }
+.bar-ic { font-size:10px; color:var(--text-light); }
+.bar-time { font-size:11px; font-weight:600; color:var(--text-mid); font-variant-numeric:tabular-nums; }
+
+.vt-ic {
+  display:flex; align-items:center; justify-content:center;
+  width:22px; height:18px;
+  padding:0 3px; border-radius:4px; cursor:pointer;
+  transition:background 0.12s;
+}
+.vt-ic:hover { background:var(--surface-2); }
+.vt-ic.open  { background:var(--surface-3); }
+
+.vt-ic svg { transition:opacity 0.2s; }
+.vt-svg-idle      { opacity:1; }
+.vt-svg-recording { opacity:0; position:absolute; }
+
+.vt-ic.recording .vt-svg-idle      { opacity:0; }
+.vt-ic.recording .vt-svg-recording { opacity:1; animation:blink 1s ease-in-out infinite; }
+
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+
+/* ════════════════════════════════════
+   DROPDOWN
+════════════════════════════════════ */
+.dd-wrap { width:100%; max-width:560px; position:relative; margin-bottom:40px; }
+
+.dd {
+  position:absolute; top:0; right:0; width:268px;
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--r); overflow:hidden;
+  transform-origin:top right;
+  transform:scale(0.90) translateY(-10px); opacity:0; pointer-events:none;
+  transition:transform 0.22s cubic-bezier(0.34,1.3,0.64,1), opacity 0.18s ease;
+  z-index:100;
+  box-shadow:0 8px 32px rgba(45,41,38,0.12), 0 2px 8px rgba(45,41,38,0.08);
+}
+.dd.open { transform:scale(1) translateY(0); opacity:1; pointer-events:all; }
+
+/* header */
+.dd-hd {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 14px 12px;
+  background:var(--surface-2); border-bottom:1px solid var(--border);
+}
+.dd-hd-l { display:flex; align-items:center; gap:10px; }
+.dd-app-ic {
+  width:30px; height:30px; border-radius:9px;
+  background:var(--red);
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 2px 8px rgba(217,79,61,0.28);
+}
+.dd-name { font-family:var(--serif); font-size:14px; font-weight:600; color:var(--text); line-height:1.1; letter-spacing:-0.01em; }
+.dd-sub  { font-size:10px; color:var(--text-light); margin-top:1px; font-style:italic; font-family:var(--serif); }
+.dd-badge {
+  padding:3px 10px; border-radius:var(--rp);
+  font-size:9px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase;
+  font-family:var(--sans);
+}
+.dd-badge.ready     { background:rgba(71,184,129,0.12); color:#2A9D5C; border:1px solid rgba(71,184,129,0.2); }
+.dd-badge.recording { background:var(--red-soft); color:var(--red); border:1px solid var(--red-border); animation:blink 1.2s ease-in-out infinite; }
+
+/* record featured button */
+.dd-rec {
+  margin:10px 10px 4px;
+  padding:11px 13px;
+  background:var(--red-soft); border:1px solid var(--red-border);
+  border-radius:var(--r-sm);
+  display:flex; align-items:center; justify-content:space-between;
+  cursor:pointer; transition:all 0.15s;
+}
+.dd-rec:hover { background:#EDDDDA; border-color:rgba(217,79,61,0.38); }
+.dd-rec-l { display:flex; align-items:center; gap:10px; }
+.dd-rec-label { font-size:13px; font-weight:600; color:var(--red); font-family:var(--sans); }
+.dd-rec-hint  { font-size:11px; color:rgba(217,79,61,0.65); margin-top:1px; font-style:italic; font-family:var(--serif); }
+.dd-key {
+  padding:3px 9px; border-radius:6px;
+  background:rgba(217,79,61,0.1);
+  font-size:11px; font-weight:600; color:var(--red);
+  letter-spacing:0.05em; font-family:var(--sans);
+}
+
+.dd-sep { height:1px; background:var(--border); margin:4px 0; }
+
+/* standard items */
+.dd-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 14px; cursor:pointer; transition:background 0.1s;
+}
+.dd-item:hover { background:var(--surface-2); }
+.dd-item.danger .dd-item-label { color:var(--red); }
+
+.dd-il { display:flex; align-items:center; gap:9px; }
+.dd-iic { width:16px; text-align:center; font-size:13px; flex-shrink:0; color:var(--text-light); }
+.dd-item-label { font-size:13px; color:var(--text); font-weight:500; letter-spacing:-0.01em; }
+.dd-ir { display:flex; align-items:center; gap:4px; }
+.dd-sc { font-size:11px; color:var(--text-light); }
+.dd-chev { font-size:11px; color:var(--text-light); }
+
+.dd-hist { padding:4px 14px 4px 39px; cursor:pointer; transition:background 0.1s; }
+.dd-hist:hover { background:var(--surface-2); }
+.dd-hist-txt {
+  font-size:12px; font-family:var(--serif); font-style:italic;
+  color:var(--text-light); white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; max-width:200px; display:block;
+}
+
+/* usage */
+.dd-usage { padding:8px 14px 12px; border-top:1px solid var(--border); }
+.dd-usage-row { display:flex; justify-content:space-between; margin-bottom:5px; }
+.dd-usage-lbl { font-size:10px; color:var(--text-light); font-weight:500; letter-spacing:0.05em; }
+.dd-bar-bg { height:3px; background:var(--border); border-radius:99px; overflow:hidden; }
+.dd-bar-fill { height:100%; width:18%; background:var(--red); border-radius:99px; }
+
+/* ════════════════════════════════════
+   SETTINGS WINDOW
+════════════════════════════════════ */
+.sw-wrap { width:100%; max-width:560px; }
+.sw {
+  width:100%; background:var(--surface);
+  border:1px solid var(--border); border-radius:var(--r);
+  overflow:hidden;
+  animation:winIn 0.45s cubic-bezier(0.34,1.2,0.64,1) both;
+  box-shadow:0 8px 40px rgba(45,41,38,0.10), 0 2px 8px rgba(45,41,38,0.06);
+}
+@keyframes winIn { from{opacity:0;transform:translateY(16px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+
+/* titlebar */
+.sw-bar {
+  display:flex; align-items:center; gap:12px;
+  padding:12px 16px;
+  background:var(--surface-2); border-bottom:1px solid var(--border);
+  user-select:none;
+}
+.traffic { display:flex; gap:6px; }
+.tl { width:12px; height:12px; border-radius:50%; cursor:pointer; transition:filter 0.12s; }
+.tl:hover { filter:brightness(0.88); }
+.tl-r { background:#FF5F57; } .tl-y { background:#FEBC2E; } .tl-g { background:#28C840; }
+.sw-title {
+  flex:1; text-align:center;
+  font-family:var(--serif); font-size:14px; font-weight:600;
+  color:var(--text); letter-spacing:-0.01em;
+}
+.sw-title-sp { width:52px; }
+
+/* tabs */
+.sw-tabs {
+  display:flex; background:var(--surface-2); border-bottom:1px solid var(--border);
+}
+.s-tab {
+  flex:1; padding:10px 4px 9px;
+  font-size:11px; font-weight:600; color:var(--text-light);
+  font-family:var(--sans); cursor:pointer; border-bottom:2px solid transparent;
+  margin-bottom:-1px; transition:all 0.14s; text-align:center;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  letter-spacing:0.03em;
+}
+.s-tab:hover { color:var(--text-mid); }
+.s-tab.active { color:var(--red); border-bottom-color:var(--red); }
+.s-tab-icon { font-size:15px; }
+
+/* body */
+.sw-body { padding:0; }
+.tab-pane { display:none; }
+.tab-pane.active { display:block; }
+
+/* group label */
+.grp-lbl {
+  font-size:9px; font-weight:600; letter-spacing:0.22em; text-transform:uppercase;
+  color:var(--red); padding:18px 18px 8px; font-family:var(--sans);
+}
+
+/* row */
+.row {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:13px 18px; border-bottom:1px solid var(--border);
+  background:var(--surface); gap:14px; transition:background 0.12s;
+}
+.row:last-child { border-bottom:none; }
+.row:hover { background:var(--surface-2); }
+.row.no-hov:hover { background:var(--surface); }
+.row.no-hov.bg2 { background:var(--surface-2); }
+.row.no-hov.bg2:hover { background:var(--surface-2); }
+
+.row-l { flex:1; display:flex; flex-direction:column; gap:2px; min-width:0; }
+.row-title { font-size:13px; font-weight:500; color:var(--text); letter-spacing:-0.01em; }
+.row-hint  { font-size:11px; color:var(--text-light); line-height:1.5; font-style:italic; font-family:var(--serif); }
+
+.row-badge {
+  font-size:9px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase;
+  padding:3px 9px; border-radius:var(--rp); flex-shrink:0; font-family:var(--sans);
+}
+.rb-active { background:var(--red-soft); color:var(--red); border:1px solid var(--red-border); }
+.rb-soon   { background:var(--surface-2); color:var(--text-light); border:1px solid var(--border); }
+
+/* input */
+.f-wrap {
+  display:flex; align-items:center; gap:6px;
+  background:var(--surface-2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:8px 10px;
+  transition:border-color 0.15s, box-shadow 0.15s;
+  flex:1; min-width:0; max-width:220px;
+}
+.f-wrap:focus-within { border-color:var(--red-focus); box-shadow:0 0 0 3px rgba(217,79,61,0.08); }
+.f-in {
+  flex:1; background:transparent; border:none; outline:none;
+  color:var(--text); font-size:13px; font-family:var(--sans); min-width:0;
+}
+.f-in::placeholder { color:var(--text-light); }
+.eye-btn { color:var(--text-light); background:none; border:none; cursor:pointer; font-size:13px; flex-shrink:0; transition:color 0.12s; padding:0; }
+.eye-btn:hover { color:var(--text); }
+
+/* select */
+.f-sel {
+  background:var(--surface-2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:8px 28px 8px 10px;
+  color:var(--text); font-size:13px; font-family:var(--sans);
+  outline:none; cursor:pointer; appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23A8A29C' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right 10px center;
+  transition:border-color 0.15s; min-width:160px;
+}
+.f-sel:focus { border-color:var(--red-focus); outline:none; box-shadow:0 0 0 3px rgba(217,79,61,0.08); }
+.f-sel option { background:white; }
+
+/* toggle */
+.toggle {
+  width:42px; height:24px; border-radius:12px;
+  background:var(--border); position:relative; cursor:pointer;
+  flex-shrink:0; transition:background 0.25s; border:none; padding:0;
+}
+.toggle.on { background:var(--red); }
+.tog-k {
+  width:20px; height:20px; border-radius:50%; background:white;
+  position:absolute; top:2px; left:2px;
+  transition:transform 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow:0 1px 4px rgba(45,41,38,0.2);
+}
+.toggle.on .tog-k { transform:translateX(18px); }
+
+/* segmented */
+.seg {
+  display:flex; background:var(--surface-2); border:1px solid var(--border);
+  border-radius:var(--r-sm); padding:3px; gap:2px;
+}
+.seg-b {
+  flex:1; padding:5px 10px; border-radius:5px;
+  font-size:12px; font-family:var(--sans); font-weight:500;
+  color:var(--text-light); background:transparent; border:none; cursor:pointer;
+  transition:all 0.15s; text-align:center;
+}
+.seg-b.active { background:var(--surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(45,41,38,0.08); }
+
+/* key cap */
+.keycap {
+  display:inline-flex; align-items:center;
+  padding:4px 12px; background:var(--surface-2);
+  border:1px solid var(--border-2); border-bottom:2px solid var(--border-2);
+  border-radius:7px; font-size:12px; font-weight:600;
+  color:var(--text); font-family:var(--sans);
+}
+
+/* position grid */
+.pos-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; }
+.pos-chip {
+  display:flex; flex-direction:column; align-items:center;
+  padding:10px 4px; border-radius:var(--r-sm);
+  background:var(--surface-2); border:1px solid var(--border);
+  cursor:pointer; transition:all 0.12s; gap:4px;
+}
+.pos-chip:hover { background:var(--surface-3); border-color:var(--border-2); }
+.pos-chip.active { background:var(--red-soft); border-color:var(--red-border); }
+.pc-ic { font-size:16px; }
+.pc-lb { font-size:10px; font-weight:500; color:var(--text-light); font-family:var(--sans); }
+.pos-chip.active .pc-lb { color:var(--red); }
+
+/* coming soon providers */
+.providers-wrap {
+  background:var(--surface); border-radius:var(--r-sm);
+  border:1px solid var(--border); overflow:hidden; margin:0 18px 18px;
+  opacity:0.5;
+}
+.provider-row {
+  display:flex; align-items:center; padding:12px 14px;
+  border-bottom:1px solid var(--border); gap:12px; background:var(--surface-2);
+}
+.provider-row:last-child { border-bottom:none; }
+.prov-ic {
+  width:28px; height:28px; border-radius:8px;
+  background:var(--surface); border:1px solid var(--border);
+  display:flex; align-items:center; justify-content:center; font-size:14px;
+}
+.prov-name { font-size:13px; font-weight:500; color:var(--text); }
+.prov-desc { font-size:11px; color:var(--text-light); font-style:italic; font-family:var(--serif); }
+
+/* about tab */
+.about {
+  display:flex; flex-direction:column; align-items:center;
+  padding:32px 18px 8px; gap:14px;
+}
+.about-ic {
+  width:72px; height:72px; border-radius:18px;
+  background:var(--red); border:none;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 6px 24px rgba(217,79,61,0.28);
+}
+.about-name { font-family:var(--serif); font-size:24px; font-weight:600; color:var(--text); letter-spacing:-0.02em; }
+.about-ver  { font-size:12px; color:var(--text-light); margin-top:-8px; font-style:italic; font-family:var(--serif); }
+.about-desc { font-family:var(--serif); font-size:14px; font-style:italic; color:var(--text-mid); text-align:center; line-height:1.7; max-width:320px; }
+
+/* stats */
+.stats-row {
+  display:grid; grid-template-columns:1fr 1fr 1fr;
+  width:100%; background:var(--border); border-radius:var(--r);
+  overflow:hidden; border:1px solid var(--border); gap:1px;
+}
+.stat-cell { padding:16px 12px; background:var(--surface-2); text-align:center; }
+.stat-num {
+  font-family:var(--serif); font-size:26px; font-weight:600;
+  color:var(--text); letter-spacing:-0.03em; line-height:1.1;
+}
+.stat-num.accent { color:var(--red); }
+.stat-lbl {
+  font-size:9px; font-weight:600; letter-spacing:0.15em; text-transform:uppercase;
+  color:var(--text-light); margin-top:3px; font-family:var(--sans);
+}
+
+.about-links { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+.a-link {
+  padding:7px 16px; border-radius:var(--rp);
+  background:var(--surface-2); border:1px solid var(--border);
+  color:var(--text-mid); font-size:12px; font-weight:500;
+  cursor:pointer; transition:all 0.12s; text-decoration:none; font-family:var(--sans);
+}
+.a-link:hover { background:var(--surface-3); color:var(--text); }
+
+/* footer */
+.sw-footer {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 18px 16px;
+  background:var(--surface-2); border-top:1px solid var(--border);
+}
+.sw-ver { font-size:11px; color:var(--text-light); font-style:italic; font-family:var(--serif); }
+.sw-acts { display:flex; gap:8px; }
+
+.btn-ghost-s {
+  padding:8px 16px; border-radius:var(--rp);
+  background:transparent; border:1px solid var(--border);
+  color:var(--text-mid); font-size:13px; font-family:var(--sans); font-weight:500;
+  cursor:pointer; transition:all 0.12s;
+}
+.btn-ghost-s:hover { background:var(--surface-3); color:var(--text); }
+
+.btn-save {
+  padding:8px 22px; border-radius:var(--rp);
+  background:var(--red); border:none; color:white;
+  font-size:13px; font-family:var(--sans); font-weight:600;
+  cursor:pointer; transition:all 0.15s; letter-spacing:-0.01em;
+  box-shadow:0 3px 12px rgba(217,79,61,0.28);
+}
+.btn-save:hover { background:#c44434; }
+.btn-save:active { transform:scale(0.97); }
+
+/* toast */
+.toast {
+  position:fixed; bottom:28px; left:50%;
+  transform:translateX(-50%) translateY(16px);
+  background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--rp); padding:10px 20px;
+  display:flex; align-items:center; gap:8px;
+  font-size:13px; font-weight:500; font-family:var(--sans);
+  color:#2A9D5C; opacity:0; pointer-events:none;
+  transition:all 0.28s cubic-bezier(0.34,1.3,0.64,1);
+  z-index:9999;
+  box-shadow:0 8px 28px rgba(45,41,38,0.12);
+}
+.toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+.toast.err  { color:var(--red); border-color:var(--red-border); }
+
+</style>
+</head>
+<body>
+
+<!-- Theme toggle -->
+<button class="theme-toggle" onclick="toggleTheme()" id="theme-btn">
+  <span class="tog-icon">☀️</span> Light mode
+</button>
+
+<div class="pg-logo">
+  <div class="pg-bubble">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="2" width="6" height="11" rx="3" fill="white"/>
+      <path d="M5 10a7 7 0 0014 0" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="12" y1="17" x2="12" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="9" y1="21" x2="15" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <div class="pg-wordmark">Scrib<span>r</span></div>
+</div>
+<div class="pg-sub">Menubar & Settings · Click the icon to open</div>
+
+<!-- macOS bar -->
+<div class="sec">macOS Menubar</div>
+
+<div style="width:100%;max-width:560px;display:flex;flex-direction:column;gap:16px;">
+
+  <!-- Idle state -->
+  <div>
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-light);font-family:var(--sans);margin-bottom:5px;">Idle</div>
+    <div class="mac-bar">
+      <div class="bar-l">
+        <span style="font-size:13px">🍎</span>
+        <span>Finder</span><span>File</span><span>Edit</span>
+      </div>
+      <div class="bar-r">
+        <span class="bar-ic">🔋</span>
+        <span class="bar-ic">📶</span>
+        <div class="vt-ic" id="vt-ic" onclick="toggleMenu()" style="position:relative;">
+          <svg class="vt-svg-idle" width="16" height="16" viewBox="0 0 24 24">
+            <defs>
+              <mask id="mic-mask-idle">
+                <rect width="24" height="24" fill="white"/>
+                <rect x="9" y="2" width="6" height="11" rx="3" fill="black"/>
+                <path d="M5 10a7 7 0 0014 0" stroke="black" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+                <line x1="12" y1="17" x2="12" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+                <line x1="9" y1="21" x2="15" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <rect width="24" height="24" rx="5" fill="var(--text-light)" mask="url(#mic-mask-idle)"/>
+          </svg>
+          <svg class="vt-svg-recording" width="16" height="16" viewBox="0 0 24 24">
+            <defs>
+              <mask id="mic-mask-rec">
+                <rect width="24" height="24" fill="white"/>
+                <rect x="9" y="2" width="6" height="11" rx="3" fill="black"/>
+                <path d="M5 10a7 7 0 0014 0" stroke="black" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+                <line x1="12" y1="17" x2="12" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+                <line x1="9" y1="21" x2="15" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <rect width="24" height="24" rx="5" fill="var(--red)" mask="url(#mic-mask-rec)"/>
+          </svg>
+        </div>
+        <span class="bar-time" id="bar-time">9:41</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recording state — always shows red icon -->
+  <div>
+    <div style="font-size:9px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:var(--text-light);font-family:var(--sans);margin-bottom:5px;">Recording</div>
+    <div class="mac-bar">
+      <div class="bar-l">
+        <span style="font-size:13px">🍎</span>
+        <span>Finder</span><span>File</span><span>Edit</span>
+      </div>
+      <div class="bar-r">
+        <span class="bar-ic">🔋</span>
+        <span class="bar-ic">📶</span>
+        <div class="vt-ic recording" style="position:relative; cursor:default;">
+          <!-- only show the red recording icon, always visible -->
+          <svg width="16" height="16" viewBox="0 0 24 24" style="animation:blink 1s ease-in-out infinite;">
+            <defs>
+              <mask id="mic-mask-rec2">
+                <rect width="24" height="24" fill="white"/>
+                <rect x="9" y="2" width="6" height="11" rx="3" fill="black"/>
+                <path d="M5 10a7 7 0 0014 0" stroke="black" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+                <line x1="12" y1="17" x2="12" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+                <line x1="9" y1="21" x2="15" y2="21" stroke="black" stroke-width="2.2" stroke-linecap="round"/>
+              </mask>
+            </defs>
+            <rect width="24" height="24" rx="5" fill="var(--red)" mask="url(#mic-mask-rec2)"/>
+          </svg>
+        </div>
+        <span class="bar-time">9:41</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+  <!-- Dropdown attaches under the idle bar -->
+  <div style="position:relative;width:100%;max-width:560px;">
+  <div class="dd-wrap">
+    <div class="dd" id="dd">
+
+      <div class="dd-hd">
+        <div class="dd-hd-l">
+          <div class="dd-app-ic">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <rect x="9" y="2" width="6" height="11" rx="3" fill="white"/>
+              <path d="M5 10a7 7 0 0014 0" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="12" y1="17" x2="12" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+              <line x1="9" y1="21" x2="15" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <div class="dd-name">Scribr</div>
+            <div class="dd-sub">Hold Right ⌥ to record</div>
+          </div>
+        </div>
+        <div class="dd-badge ready" id="dd-badge">Ready</div>
+      </div>
+
+      <div class="dd-body" style="padding:0">
+        <div class="dd-rec" onclick="toggleRecord()">
+          <div class="dd-rec-l">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <rect x="9" y="2" width="6" height="11" rx="3" fill="var(--red)"/>
+              <path d="M5 10a7 7 0 0014 0" stroke="var(--red)" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <div>
+              <div class="dd-rec-label" id="rec-label">Start Recording</div>
+              <div class="dd-rec-hint">Hold Right ⌥ or tap here</div>
+            </div>
+          </div>
+          <span class="dd-key">Right ⌥</span>
+        </div>
+
+        <div class="dd-sep"></div>
+
+        <div class="dd-item">
+          <div class="dd-il">
+            <span class="dd-iic">📋</span>
+            <span class="dd-item-label">History</span>
+          </div>
+          <div class="dd-ir">
+            <span class="dd-sc">2 clips</span>
+            <span class="dd-chev">›</span>
+          </div>
+        </div>
+        <div class="dd-hist"><span class="dd-hist-txt">Hey, just a quick note — can we push the...</span></div>
+        <div class="dd-hist"><span class="dd-hist-txt">The meeting's confirmed for 3pm tomorrow...</span></div>
+
+        <div class="dd-sep"></div>
+
+        <div class="dd-item" onclick="openSettings()">
+          <div class="dd-il">
+            <span class="dd-iic">⚙️</span>
+            <span class="dd-item-label">Settings</span>
+          </div>
+          <span class="dd-sc">⌘,</span>
+        </div>
+        <div class="dd-item">
+          <div class="dd-il">
+            <span class="dd-iic">🎤</span>
+            <span class="dd-item-label">Test Microphone</span>
+          </div>
+        </div>
+
+        <div class="dd-sep"></div>
+
+        <div class="dd-item danger">
+          <div class="dd-il">
+            <span class="dd-iic" style="opacity:0.45">✕</span>
+            <span class="dd-item-label">Quit Scribr</span>
+          </div>
+        </div>
+
+        <div class="dd-usage">
+          <div class="dd-usage-row">
+            <span class="dd-usage-lbl">Monthly Usage</span>
+            <span class="dd-usage-lbl" style="color:var(--red)">$0.09 / ~$0.50</span>
+          </div>
+          <div class="dd-bar-bg"><div class="dd-bar-fill"></div></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  </div>
+
+<!-- Settings -->
+<div class="sec" style="margin-top:8px">Settings Window</div>
+
+<div class="sw-wrap">
+<div class="sw">
+
+  <div class="sw-bar">
+    <div class="traffic">
+      <div class="tl tl-r"></div>
+      <div class="tl tl-y"></div>
+      <div class="tl tl-g"></div>
+    </div>
+    <div class="sw-title">Scribr Settings</div>
+    <div class="sw-title-sp"></div>
+  </div>
+
+  <div class="sw-tabs">
+    <div class="s-tab active" onclick="tab('api',this)">
+      <span class="s-tab-icon">🔑</span>API Keys
+    </div>
+    <div class="s-tab" onclick="tab('trans',this)">
+      <span class="s-tab-icon">⚙️</span>Transcription
+    </div>
+    <div class="s-tab" onclick="tab('look',this)">
+      <span class="s-tab-icon">🎨</span>Appearance
+    </div>
+    <div class="s-tab" onclick="tab('about',this)">
+      <span class="s-tab-icon">ℹ️</span>About
+    </div>
+  </div>
+
+  <div class="sw-body">
+
+    <!-- API Keys -->
+    <div class="tab-pane active" id="tab-api">
+      <div class="grp-lbl">Active Provider</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 4px;">
+        <div class="row no-hov">
+          <div class="row-l">
+            <div class="row-title">OpenAI API Key</div>
+            <div class="row-hint">Whisper transcription · GPT-4o-mini cleanup · ~$0.006/min</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+            <div class="f-wrap">
+              <input class="f-in" type="password" id="oai-key" value="sk-proj-xxxxxxxxxxxx" placeholder="sk-...">
+              <button class="eye-btn" onclick="toggleEye('oai-key',this)">👁</button>
+            </div>
+            <span class="row-badge rb-active">Active</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grp-lbl">Coming Soon</div>
+      <div class="providers-wrap">
+        <div class="provider-row">
+          <div class="prov-ic">🌊</div>
+          <div class="row-l">
+            <div class="prov-name">Deepgram</div>
+            <div class="prov-desc">Ultra-fast streaming transcription</div>
+          </div>
+          <span class="row-badge rb-soon">Soon</span>
+        </div>
+        <div class="provider-row">
+          <div class="prov-ic">⚡</div>
+          <div class="row-l">
+            <div class="prov-name">Groq</div>
+            <div class="prov-desc">Whisper at 10× inference speed</div>
+          </div>
+          <span class="row-badge rb-soon">Soon</span>
+        </div>
+        <div class="provider-row" style="border-bottom:none">
+          <div class="prov-ic">🔊</div>
+          <div class="row-l">
+            <div class="prov-name">AssemblyAI</div>
+            <div class="prov-desc">Speaker detection + smart formatting</div>
+          </div>
+          <span class="row-badge rb-soon">Soon</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transcription -->
+    <div class="tab-pane" id="tab-trans">
+      <div class="grp-lbl">Engine</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 4px;">
+        <div class="row no-hov">
+          <div class="row-l">
+            <div class="row-title">Mode</div>
+            <div class="row-hint">Local is free, offline, ~1s on Apple Silicon</div>
+          </div>
+          <div class="seg">
+            <button class="seg-b active" onclick="segClick(this)">☁️ API</button>
+            <button class="seg-b" onclick="segClick(this)">💻 Local</button>
+          </div>
+        </div>
+        <div class="row no-hov">
+          <div class="row-l">
+            <div class="row-title">Local Model</div>
+            <div class="row-hint">Downloads once on first use</div>
+          </div>
+          <select class="f-sel">
+            <option>tiny — 75MB</option>
+            <option selected>base — 145MB ✓</option>
+            <option>small — 460MB</option>
+            <option>medium — 1.5GB</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grp-lbl">Language & Cleanup</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 4px;">
+        <div class="row no-hov">
+          <div class="row-l"><div class="row-title">Language</div></div>
+          <select class="f-sel">
+            <option>🌐 Auto-detect</option>
+            <option selected>🇬🇧 English</option>
+            <option>🇩🇪 German</option>
+            <option>🇫🇷 French</option>
+            <option>🇯🇵 Japanese</option>
+          </select>
+        </div>
+        <div class="row">
+          <div class="row-l">
+            <div class="row-title">AI Cleanup</div>
+            <div class="row-hint">Remove filler words via GPT-4o-mini · ~$0.01/month</div>
+          </div>
+          <button class="toggle on" onclick="this.classList.toggle('on')"><div class="tog-k"></div></button>
+        </div>
+        <div class="row" style="border-bottom:none">
+          <div class="row-l">
+            <div class="row-title">Confidence Highlights</div>
+            <div class="row-hint">Underline uncertain words for easy review</div>
+          </div>
+          <button class="toggle on" onclick="this.classList.toggle('on')"><div class="tog-k"></div></button>
+        </div>
+      </div>
+
+      <div class="grp-lbl">Shortcut</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 16px;">
+        <div class="row no-hov" style="border-bottom:none">
+          <div class="row-l">
+            <div class="row-title">Record Shortcut</div>
+            <div class="row-hint">Hold to record · release to transcribe</div>
+          </div>
+          <span class="keycap">Right ⌥</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Appearance -->
+    <div class="tab-pane" id="tab-look">
+      <div class="grp-lbl">Overlay</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 4px;">
+        <div class="row">
+          <div class="row-l">
+            <div class="row-title">Show Recording Overlay</div>
+            <div class="row-hint">Floating pill with waveform during recording</div>
+          </div>
+          <button class="toggle on" onclick="this.classList.toggle('on')"><div class="tog-k"></div></button>
+        </div>
+        <div class="row no-hov" style="flex-direction:column;align-items:flex-start;gap:12px;border-bottom:none">
+          <div class="row-title">Position</div>
+          <div class="pos-grid" style="width:100%">
+            <div class="pos-chip" onclick="pickPos(this)"><span class="pc-ic">↖</span><span class="pc-lb">Top Left</span></div>
+            <div class="pos-chip" onclick="pickPos(this)"><span class="pc-ic">⬆</span><span class="pc-lb">Top Centre</span></div>
+            <div class="pos-chip" onclick="pickPos(this)"><span class="pc-ic">↗</span><span class="pc-lb">Top Right</span></div>
+            <div class="pos-chip" onclick="pickPos(this)"><span class="pc-ic">↙</span><span class="pc-lb">Bot Left</span></div>
+            <div class="pos-chip active" onclick="pickPos(this)"><span class="pc-ic">⬇</span><span class="pc-lb">Bot Centre</span></div>
+            <div class="pos-chip" onclick="pickPos(this)"><span class="pc-ic">↘</span><span class="pc-lb">Bot Right</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grp-lbl">Accessibility</div>
+      <div style="border:1px solid var(--border); border-radius:var(--r-sm); overflow:hidden; margin:0 18px 16px;">
+        <div class="row" style="border-bottom:none">
+          <div class="row-l">
+            <div class="row-title">Reduce Motion</div>
+            <div class="row-hint">Simpler transitions for accessibility</div>
+          </div>
+          <button class="toggle" onclick="this.classList.toggle('on')"><div class="tog-k"></div></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- About -->
+    <div class="tab-pane" id="tab-about">
+      <div class="about">
+        <div class="about-ic">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <rect x="9" y="2" width="6" height="11" rx="3" fill="white"/>
+            <path d="M5 10a7 7 0 0014 0" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="12" y1="17" x2="12" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+            <line x1="9" y1="21" x2="15" y2="21" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="about-name">Scribr</div>
+        <div class="about-ver">Version 1.0.0 · Python 3.12 + PyQt6</div>
+        <div class="about-desc">Hold Right ⌥ to record. Release to transcribe. Your words appear ready to share.</div>
+        <div class="stats-row">
+          <div class="stat-cell">
+            <div class="stat-num accent">23</div>
+            <div class="stat-lbl">This Month</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-num">0:04</div>
+            <div class="stat-lbl">Avg Clip</div>
+          </div>
+          <div class="stat-cell">
+            <div class="stat-num">$0.09</div>
+            <div class="stat-lbl">API Cost</div>
+          </div>
+        </div>
+        <div class="about-links">
+          <a class="a-link" href="#">📄 Docs</a>
+          <a class="a-link" href="#">🐛 Report Bug</a>
+          <a class="a-link" href="#">⭐ GitHub</a>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="sw-footer">
+    <span class="sw-ver">Scribr v1.0 · Just tap, talk, and it's done.</span>
+    <div class="sw-acts">
+      <button class="btn-ghost-s">Cancel</button>
+      <button class="btn-save" onclick="save()">Save</button>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="toast" id="toast">✓ Settings saved</div>
+
+<script>
+function toggleTheme(){
+  const html = document.documentElement;
+  const dark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', dark ? 'light' : 'dark');
+  const btn = document.getElementById('theme-btn');
+  btn.innerHTML = dark ? '<span class="tog-icon">🌙</span> Dark mode' : '<span class="tog-icon">☀️</span> Light mode';
+}
+// default to dark on load
+document.documentElement.setAttribute('data-theme','dark');
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('theme-btn').innerHTML = '<span class="tog-icon">☀️</span> Light mode';
+});
+
+function clock(){ const n=new Date(); document.getElementById('bar-time').textContent=`${n.getHours()}:${n.getMinutes().toString().padStart(2,'0')}`; }
+clock(); setInterval(clock,15000);
+
+let menuOpen=false;
+function toggleMenu(){
+  menuOpen=!menuOpen;
+  document.getElementById('dd').classList.toggle('open',menuOpen);
+  document.getElementById('vt-ic').classList.toggle('open',menuOpen);
+}
+document.addEventListener('click',e=>{
+  if(menuOpen&&!e.target.closest('#vt-ic')&&!e.target.closest('#dd')){
+    menuOpen=false;
+    document.getElementById('dd').classList.remove('open');
+    document.getElementById('vt-ic').classList.remove('open');
+  }
+});
+
+let rec=false;
+function toggleRecord(){
+  rec=!rec;
+  const ic=document.getElementById('vt-ic');
+  const badge=document.getElementById('dd-badge');
+  const lbl=document.getElementById('rec-label');
+  ic.classList.toggle('recording',rec);
+  badge.className='dd-badge '+(rec?'recording':'ready');
+  badge.textContent=rec?'Recording':'Ready';
+  lbl.textContent=rec?'Stop Recording':'Start Recording';
+}
+
+function openSettings(){
+  menuOpen=false;
+  document.getElementById('dd').classList.remove('open');
+  document.getElementById('vt-ic').classList.remove('open');
+  document.querySelector('.sw').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function tab(name,el){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.s-tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  el.classList.add('active');
+}
+
+function segClick(btn){
+  btn.closest('.seg').querySelectorAll('.seg-b').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function toggleEye(id,btn){
+  const f=document.getElementById(id);
+  f.type=f.type==='password'?'text':'password';
+  btn.textContent=f.type==='password'?'👁':'🙈';
+}
+
+function pickPos(c){
+  document.querySelectorAll('.pos-chip').forEach(p=>p.classList.remove('active'));
+  c.classList.add('active');
+}
+
+function save(){
+  const key=document.getElementById('oai-key').value.trim();
+  const t=document.getElementById('toast');
+  if(key&&!key.startsWith('sk-')){
+    t.className='toast err show';
+    t.textContent='⚠ API key must start with sk-';
+    setTimeout(()=>t.classList.remove('show'),3000);
+    setTimeout(()=>{t.className='toast';t.textContent='✓ Settings saved';},3500);
+    return;
+  }
+  t.className='toast show';
+  t.textContent='✓ Settings saved';
+  setTimeout(()=>t.classList.remove('show'),2500);
+}
+</script>
+</body>
+</html>

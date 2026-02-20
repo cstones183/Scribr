@@ -2,27 +2,25 @@
 # Imports all modules, launches the overlay with simulated RMS
 # and progressive transcript updates, transitions through all states.
 
-import sys
 import math
+import sys
 
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import QTimer
-
-from overlay import OverlayWindow, OverlayState
 from hotkey import HotkeyListener
+from overlay import OverlayState, OverlayWindow
+from PyQt6.QtCore import QTimer
+from PyQt6.QtWidgets import QApplication
 from recorder import Recorder
 from settings import SettingsManager
-from transcriber import GroqTranscriber, OpenAITranscriber
 
 
 def main():
     app = QApplication(sys.argv)
 
     # ── Verify all imports ──────────────────────────────────
-    print("=== VoiceType Stage 2 Integration Test ===\n")
+    print("=== Scribr Stage 2 Integration Test ===\n")
 
-    sm = SettingsManager()
-    print(f"[OK] SettingsManager loaded")
+    _sm = SettingsManager()
+    print("[OK] SettingsManager loaded")
 
     hl = HotkeyListener(
         on_press=lambda: print("[Hotkey] press"),
@@ -33,8 +31,8 @@ def main():
     rec = Recorder()
     print(f"[OK] Recorder created (recording={rec.is_recording})")
 
-    print(f"[OK] GroqTranscriber class loaded")
-    print(f"[OK] OpenAITranscriber class loaded")
+    print("[OK] GroqTranscriber class loaded")
+    print("[OK] OpenAITranscriber class loaded")
 
     overlay = OverlayWindow()
     print(f"[OK] OverlayWindow created (state={overlay.state})\n")

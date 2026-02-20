@@ -3,8 +3,9 @@
 # Uses pynput keyboard.Listener watching specifically for Key.alt_r.
 # Runs in a background daemon thread — never blocks the main thread.
 
+from collections.abc import Callable
+
 from pynput import keyboard
-from typing import Callable, Optional
 
 
 class HotkeyListener:
@@ -25,12 +26,12 @@ class HotkeyListener:
         self,
         on_press: Callable[[], None],
         on_release: Callable[[], None],
-        on_permission_error: Optional[Callable[[str], None]] = None,
+        on_permission_error: Callable[[str], None] | None = None,
     ):
         self._on_press = on_press
         self._on_release = on_release
         self._on_permission_error = on_permission_error
-        self._listener: Optional[keyboard.Listener] = None
+        self._listener: keyboard.Listener | None = None
         self._is_held = False
         self._running = False
 
@@ -56,7 +57,7 @@ class HotkeyListener:
             if self._on_permission_error:
                 if "accessibility" in msg.lower() or "trusted" in msg.lower():
                     self._on_permission_error(
-                        "VoiceType needs Accessibility permission. "
+                        "Scribr needs Accessibility permission. "
                         "Go to System Settings > Privacy & Security > Accessibility "
                         "and add this app."
                     )

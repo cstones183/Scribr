@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 64" width="280" height="64">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Lora:wght@600&amp;display=swap');
+    </style>
+  </defs>
+
+  <!-- Icon bubble -->
+  <rect x="0" y="6" width="52" height="52" rx="14" fill="#D94F3D"/>
+
+  <!-- Mic icon -->
+  <!-- Mic body -->
+  <rect x="21" y="14" width="10" height="18" rx="5" fill="white"/>
+  <!-- Mic arc -->
+  <path d="M14 27 Q14 38 26 38 Q38 38 38 27" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <!-- Mic stand -->
+  <line x1="26" y1="38" x2="26" y2="44" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- Mic base -->
+  <line x1="21" y1="44" x2="31" y2="44" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Wordmark: Scrib in dark, r in red — single text element to avoid gaps -->
+  <text x="68" y="47" font-family="Lora, Georgia, serif" font-weight="600" font-size="42" letter-spacing="-0.5"><tspan fill="#2D2926">Scrib</tspan><tspan fill="#D94F3D">r</tspan></text>
+</svg>

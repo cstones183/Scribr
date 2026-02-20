@@ -1,42 +1,62 @@
-# overlay.py — PyQt6 floating overlay window.
+# overlay.py — PyQt6 floating overlay window for Scribr.
 # Frameless, always-on-top, anchored to bottom-centre of screen.
 # States: IDLE, RECORDING, LIVE_TRANSCRIBING, RESULT_FIELD, RESULT_NOTEPAD
-# Pill + connector + notepad design matching the HTML prototype.
+# Pill + connector + notepad — warm coral accent, surface bg.
 
 import math
 import random
 import time
 from enum import Enum, auto
 
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-    QPushButton, QApplication, QGraphicsDropShadowEffect,
-    QSizePolicy,
-)
 from PyQt6.QtCore import (
-    Qt, QTimer, QPropertyAnimation, QEasingCurve,
-    QParallelAnimationGroup, QSequentialAnimationGroup,
-    pyqtSignal, pyqtSlot, pyqtProperty, QRect, QPoint, QSize,
+    QEasingCurve,
+    QParallelAnimationGroup,
     QPointF,
+    QPropertyAnimation,
+    Qt,
+    QTimer,
+    pyqtProperty,
+    pyqtSignal,
+    pyqtSlot,
 )
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QBrush, QPainterPath, QFont,
+    QBrush,
+    QColor,
+    QFont,
     QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
 )
-
+from PyQt6.QtWidgets import (
+    QApplication,
+    QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 from style import (
-    NAVY, GLASS, GLASS2, BORDER, BORDER_HI, BORDER_FOCUS,
-    BLUE, BLUE_SOFT, BLUE_GLOW, BLUE_DIM,
-    GREEN, RED, AMBER,
-    T1, T2, T3, T4,
-    font,
-    RADIUS_PILL, RADIUS_CARD,
-    ANIM_ENTER, ANIM_EXIT, ANIM_EXPAND, ANIM_FAST,
-    PILL_HEIGHT, PILL_PADDING_H, NOTEPAD_WIDTH, CONNECTOR_HEIGHT,
+    ANIM_EXIT,
+    BAR_COUNT,
+    BAR_GAP,
+    BAR_MAX_H,
+    BAR_MIN_H,
+    BAR_WIDTH,
     BOTTOM_MARGIN,
-    BAR_COUNT, BAR_WIDTH, BAR_GAP, BAR_MAX_H, BAR_MIN_H,
+    CONNECTOR_HEIGHT,
+    NOTEPAD_WIDTH,
+    PILL_HEIGHT,
+    PILL_PADDING_H,
+    RADIUS_CARD,
+    RADIUS_PILL,
+    font_sans,
+    font_serif,
+    qcolor_to_rgba,
+    theme,
 )
-
 
 # ── Waveform tuning ───────────────────────────────────────
 
@@ -47,11 +67,19 @@ SPRING_DAMPING = 0.7
 
 BREATHING_FREQ = 0.8
 BREATHING_AMP = 3.0
-BREATHING_PHASES = [0, math.pi / 3, 2 * math.pi / 3, math.pi,
-                    4 * math.pi / 3, 5 * math.pi / 3, 2 * math.pi]
+BREATHING_PHASES = [
+    0,
+    math.pi / 3,
+    2 * math.pi / 3,
+    math.pi,
+    4 * math.pi / 3,
+    5 * math.pi / 3,
+    2 * math.pi,
+]
 
 
 # ── State enum ──────────────────────────────────────────────
+
 
 class OverlayState(Enum):
     IDLE = auto()
@@ -65,12 +93,16 @@ class OverlayState(Enum):
 #  PULSING DOT
 # ════════════════════════════════════════════════════════════
 
+
 class PulsingDot(QWidget):
     """Small 7px circle that pulses (matches .dot in prototype)."""
 
-    def __init__(self, color: QColor = RED, parent=None):
+    def __init__(self, color: QColor | None = None, parent=None):
         super().__init__(parent)
         self.setFixedSize(7, 7)
+        t = theme()
+        if color is None:
+            color = t.red
         self._color = QColor(color)
         self._glow_color = QColor(color)
         self._glow_color.setAlpha(204)
@@ -141,6 +173,7 @@ class PulsingDot(QWidget):
 #  WAVEFORM WIDGET
 # ════════════════════════════════════════════════════════════
 
+
 class WaveformWidget(QWidget):
     """7 vertical bars with spring physics + bar glow."""
 
@@ -165,10 +198,7 @@ class WaveformWidget(QWidget):
         if self._rms > 0.02:
             self._breathing = False
             for i in range(BAR_COUNT):
-                self._bar_targets[i] = max(
-                    BAR_MIN_H,
-                    self._rms * BAR_MAX_H * BAR_SCALE_FACTORS[i]
-                )
+                self._bar_targets[i] = max(BAR_MIN_H, self._rms * BAR_MAX_H * BAR_SCALE_FACTORS[i])
         else:
             self._breathing = True
 
@@ -192,9 +222,10 @@ class WaveformWidget(QWidget):
         if self._breathing:
             for i in range(BAR_COUNT):
                 self._bar_targets[i] = (
-                    BAR_MIN_H + BREATHING_AMP
-                    + math.sin(elapsed * BREATHING_FREQ * 2 * math.pi
-                               + BREATHING_PHASES[i]) * BREATHING_AMP
+                    BAR_MIN_H
+                    + BREATHING_AMP
+                    + math.sin(elapsed * BREATHING_FREQ * 2 * math.pi + BREATHING_PHASES[i])
+                    * BREATHING_AMP
                 )
 
         for i in range(BAR_COUNT):
@@ -207,6 +238,7 @@ class WaveformWidget(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        t = theme()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -216,6 +248,11 @@ class WaveformWidget(QWidget):
 
         p.setPen(Qt.PenStyle.NoPen)
 
+        # Glow color: red with reduced alpha
+        glow_r = t.red.red()
+        glow_g = t.red.green()
+        glow_b = t.red.blue()
+
         for i in range(BAR_COUNT):
             h = self._bar_heights[i]
             x = start_x + i * (BAR_WIDTH + BAR_GAP)
@@ -223,7 +260,7 @@ class WaveformWidget(QWidget):
 
             # Soft glow: 3 progressively wider/fainter layers
             for spread, alpha in [(3.0, 18), (2.0, 30), (1.0, 50)]:
-                glow = QColor(91, 196, 255, alpha)
+                glow = QColor(glow_r, glow_g, glow_b, alpha)
                 p.setBrush(glow)
                 gw = BAR_WIDTH + spread * 2
                 gh = h + spread * 2
@@ -234,7 +271,7 @@ class WaveformWidget(QWidget):
                 p.drawPath(glow_path)
 
             # Solid bar
-            p.setBrush(BLUE)
+            p.setBrush(t.red)
             path = QPainterPath()
             path.addRoundedRect(x, y, BAR_WIDTH, h, BAR_WIDTH / 2, BAR_WIDTH / 2)
             p.drawPath(path)
@@ -246,6 +283,7 @@ class WaveformWidget(QWidget):
 #  PILL SEPARATOR
 # ════════════════════════════════════════════════════════════
 
+
 class PillSep(QWidget):
     """Thin 1px x 14px vertical separator."""
 
@@ -254,9 +292,10 @@ class PillSep(QWidget):
         self.setFixedSize(1, 14)
 
     def paintEvent(self, event):
+        t = theme()
         p = QPainter(self)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(BORDER_HI)
+        p.setBrush(t.border)
         p.drawRect(0, 0, 1, 14)
         p.end()
 
@@ -265,12 +304,14 @@ class PillSep(QWidget):
 #  BLINKING CURSOR
 # ════════════════════════════════════════════════════════════
 
+
 class BlinkingCursor(QWidget):
     """Inline blinking cursor (| character) matching CSS blink animation."""
 
-    def __init__(self, color: QColor = BLUE, parent=None):
+    def __init__(self, color: QColor | None = None, parent=None):
         super().__init__(parent)
-        self._color = color
+        t = theme()
+        self._color = color if color is not None else t.red
         self._visible = True
         self._timer = QTimer(self)
         self._timer.setInterval(450)  # 0.9s step-end → toggle every 450ms
@@ -325,6 +366,7 @@ class _StreamParticle:
         self.reset(initial)
 
     def reset(self, initial: bool = False):
+        t = theme()
         self.x = STREAM_WIDTH / 2 + (random.random() - 0.5) * 28
         self.y = random.random() * self.canvas_h if initial else -4.0
         self.vy = 3.0 + random.random() * 3.5
@@ -337,9 +379,17 @@ class _StreamParticle:
         self.trail: list[tuple[float, float, float]] = []
         self.trail_length = 3 + random.randint(0, 2)
         bright = random.random() > 0.8
-        self.color = QColor(255, 255, 255) if bright else QColor(91, 196, 255)
-        self.glow_color = (QColor(180, 230, 255, 204) if bright
-                           else QColor(91, 196, 255, 179))
+        # Use coral/red tones instead of blue
+        self.color = (
+            QColor(t.text.red(), t.text.green(), t.text.blue())
+            if bright
+            else QColor(t.red.red(), t.red.green(), t.red.blue())
+        )
+        self.glow_color = (
+            QColor(t.red_soft.red(), t.red_soft.green(), t.red_soft.blue(), 204)
+            if bright
+            else QColor(t.red.red(), t.red.green(), t.red.blue(), 179)
+        )
         self.life = 0
         self.max_life = (self.canvas_h / self.vy) * (0.8 + random.random() * 0.4)
 
@@ -390,7 +440,7 @@ class _BurstPacket:
 
 class ParticleStreamWidget(QWidget):
     """Canvas-like widget that renders streaming glyphs from pill to notepad.
-    Matches the HTML prototype's particle stream animation."""
+    Matches the Scribr particle stream animation."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -424,8 +474,7 @@ class ParticleStreamWidget(QWidget):
             return
         self._active = True
         h = self._canvas_h
-        self._particles = [_StreamParticle(h, initial=True)
-                           for _ in range(STREAM_PARTICLE_COUNT)]
+        self._particles = [_StreamParticle(h, initial=True) for _ in range(STREAM_PARTICLE_COUNT)]
         self._bursts.clear()
         self._burst_timer = 0
         self._opacity = 0.0
@@ -483,25 +532,30 @@ class ParticleStreamWidget(QWidget):
         if self._opacity < 0.01 or not self._particles:
             return
 
+        t = theme()
+
         p.save()
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
         cx = x + w / 2
 
-        # Center tube glow line
+        # Center tube glow line — red gradient instead of blue
         p.setOpacity(self._opacity)
         line_grad = QLinearGradient(QPointF(cx, y), QPointF(cx, y + h))
-        line_grad.setColorAt(0.0, QColor(91, 196, 255, 0))
-        line_grad.setColorAt(0.2, QColor(91, 196, 255, 64))
-        line_grad.setColorAt(0.8, QColor(91, 196, 255, 64))
-        line_grad.setColorAt(1.0, QColor(91, 196, 255, 0))
+        red_r, red_g, red_b = t.red.red(), t.red.green(), t.red.blue()
+        line_grad.setColorAt(0.0, QColor(red_r, red_g, red_b, 0))
+        line_grad.setColorAt(0.2, QColor(red_r, red_g, red_b, 64))
+        line_grad.setColorAt(0.8, QColor(red_r, red_g, red_b, 64))
+        line_grad.setColorAt(1.0, QColor(red_r, red_g, red_b, 0))
         p.setPen(QPen(QBrush(line_grad), 1))
         p.drawLine(QPointF(cx, y), QPointF(cx, y + h))
 
         x_off = x + (w - STREAM_WIDTH) / 2
 
         # Draw burst packets (stretched vertically for motion blur)
+        # Use red/coral tones instead of blue
+        burst_glow = QColor(red_r, red_g, red_b)
         p.setPen(Qt.PenStyle.NoPen)
         for b in self._bursts:
             bx = x_off + b.x
@@ -511,10 +565,10 @@ class ParticleStreamWidget(QWidget):
                 sy = y + b.y - streak_len * frac
                 sa = b.alpha * (1.0 - frac) * 0.4
                 p.setOpacity(self._opacity * sa)
-                p.setBrush(QColor(180, 230, 255))
+                p.setBrush(burst_glow)
                 p.drawEllipse(QPointF(bx, sy), b.radius * 2, b.radius * 2)
             p.setOpacity(self._opacity * b.alpha)
-            p.setBrush(QColor(255, 255, 255))
+            p.setBrush(QColor(t.text.red(), t.text.green(), t.text.blue()))
             p.drawEllipse(QPointF(bx, y + b.y), b.radius, b.radius)
 
         # Draw particles with heavy motion blur
@@ -525,7 +579,9 @@ class ParticleStreamWidget(QWidget):
             gx = x_off + pt.x - pt.size * 0.3
             gy = y + pt.y
 
-            fnt = QFont("Inter")
+            fnt = QFont("Plus Jakarta Sans")
+            if not fnt.exactMatch():
+                fnt = QFont("Inter")
             fnt.setPixelSize(int(pt.size))
             fnt.setWeight(QFont.Weight.Medium)
             p.setFont(fnt)
@@ -560,8 +616,9 @@ class ParticleStreamWidget(QWidget):
 #  NOTEPAD WIDGET
 # ════════════════════════════════════════════════════════════
 
+
 class NotepadWidget(QWidget):
-    """Glass card notepad that drops below the pill."""
+    """Card notepad that drops below the pill."""
 
     editClicked = pyqtSignal()
     retryClicked = pyqtSignal()
@@ -586,9 +643,9 @@ class NotepadWidget(QWidget):
 
     def _set_text_scale(self, val: float):
         self._text_scale = val
-        t = self._text_edit.viewport()
-        if t:
-            t.update()
+        vp = self._text_edit.viewport()
+        if vp:
+            vp.update()
 
     text_scale = pyqtProperty(float, _get_text_scale, _set_text_scale)
 
@@ -597,9 +654,9 @@ class NotepadWidget(QWidget):
 
     def _set_text_translate_y(self, val: float):
         self._text_translate_y = val
-        t = self._text_edit.viewport()
-        if t:
-            t.update()
+        vp = self._text_edit.viewport()
+        if vp:
+            vp.update()
 
     text_translate_y = pyqtProperty(float, _get_text_translate_y, _set_text_translate_y)
 
@@ -608,54 +665,70 @@ class NotepadWidget(QWidget):
 
     def _set_text_opacity(self, val: float):
         self._text_opacity = val
+        t = theme()
         # Map opacity to stylesheet alpha
         alpha = max(0.0, min(1.0, val))
+        text_rgba = qcolor_to_rgba(
+            QColor(t.text.red(), t.text.green(), t.text.blue(), int(alpha * 255))
+        )
+        sel_rgba = qcolor_to_rgba(
+            QColor(t.red.red(), t.red.green(), t.red.blue(), 64)
+        )
+        scroll_handle = qcolor_to_rgba(
+            QColor(t.text_light.red(), t.text_light.green(), t.text_light.blue(), 60)
+        )
         self._text_edit.setStyleSheet(
             "QTextEdit {"
             "  background: transparent; border: none;"
-            f"  padding: 14px 16px; color: rgba(255,255,255,{alpha:.2f});"
-            "  selection-background-color: rgba(91,196,255,0.25);"
+            f"  padding: 14px 16px; color: {text_rgba};"
+            f"  selection-background-color: {sel_rgba};"
             "}"
             "QScrollBar:vertical { background: transparent; width: 4px; }"
-            "QScrollBar::handle:vertical { background: rgba(255,255,255,0.12); border-radius: 2px; }"
+            f"QScrollBar::handle:vertical {{ background: {scroll_handle}; border-radius: 2px; }}"
             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         )
 
     text_opacity = pyqtProperty(float, _get_text_opacity, _set_text_opacity)
 
     def _build_ui(self):
+        t = theme()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         # Header
         header = QWidget()
+        header_border = qcolor_to_rgba(t.border)
         header.setStyleSheet(
-            "border-bottom: 1px solid rgba(255,255,255,0.07); background: transparent;"
+            f"border-bottom: 1px solid {header_border}; background: transparent;"
         )
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(14, 12, 14, 10)
 
-        self._header_dot = PulsingDot(BLUE, header)
+        self._header_dot = PulsingDot(t.red, header)
         self._header_dot.setFixedSize(5, 5)
         h_layout.addWidget(self._header_dot)
 
-        title = QLabel("VOICETYPE")
-        title.setFont(font(10, 600))
-        title.setStyleSheet(
-            "color: rgba(255,255,255,0.28); letter-spacing: 2.2px; border: none;"
-        )
+        title = QLabel("LISTENING")
+        title.setFont(font_sans(10, 600))
+        title_color = qcolor_to_rgba(t.red)
+        title.setStyleSheet(f"color: {title_color}; letter-spacing: 2.2px; border: none;")
         h_layout.addWidget(title)
         h_layout.addStretch()
+
+        border_rgba = qcolor_to_rgba(t.border)
+        text_light_rgba = qcolor_to_rgba(t.text_light)
+        text_rgba = qcolor_to_rgba(t.text)
+        surface_2_rgba = qcolor_to_rgba(t.surface_2)
 
         close_btn = QPushButton("\u2715")
         close_btn.setFixedSize(20, 20)
         close_btn.setStyleSheet(
             "QPushButton {"
-            "  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.07);"
-            "  border-radius: 10px; color: rgba(255,255,255,0.28); font-size: 9px;"
+            f"  background: {surface_2_rgba}; border: 1px solid {border_rgba};"
+            f"  border-radius: 10px; color: {text_light_rgba}; font-size: 9px;"
             "}"
-            "QPushButton:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.93); }"
+            f"QPushButton:hover {{ background: {border_rgba}; color: {text_rgba}; }}"
         )
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.closeClicked.emit)
@@ -664,15 +737,22 @@ class NotepadWidget(QWidget):
 
         # Text area
         self._text_edit = QTextEdit()
-        self._text_edit.setFont(font(14))
+        self._text_edit.setFont(font_serif(15, 400, italic=True))
+        text_mid_rgba = qcolor_to_rgba(t.text_mid)
+        sel_rgba = qcolor_to_rgba(
+            QColor(t.red.red(), t.red.green(), t.red.blue(), 64)
+        )
+        scroll_handle = qcolor_to_rgba(
+            QColor(t.text_light.red(), t.text_light.green(), t.text_light.blue(), 60)
+        )
         self._text_edit.setStyleSheet(
             "QTextEdit {"
             "  background: transparent; border: none;"
-            "  padding: 14px 16px; color: rgba(255,255,255,0.93);"
-            "  selection-background-color: rgba(91,196,255,0.25);"
+            f"  padding: 14px 16px; color: {text_mid_rgba};"
+            f"  selection-background-color: {sel_rgba};"
             "}"
             "QScrollBar:vertical { background: transparent; width: 4px; }"
-            "QScrollBar::handle:vertical { background: rgba(255,255,255,0.12); border-radius: 2px; }"
+            f"QScrollBar::handle:vertical {{ background: {scroll_handle}; border-radius: 2px; }}"
             "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
         )
         self._text_edit.setMinimumHeight(80)
@@ -683,47 +763,57 @@ class NotepadWidget(QWidget):
         # Footer
         footer = QWidget()
         footer.setStyleSheet(
-            "border-top: 1px solid rgba(255,255,255,0.07); background: transparent;"
+            f"border-top: 1px solid {border_rgba}; background: transparent;"
         )
         f_layout = QHBoxLayout(footer)
         f_layout.setContentsMargins(14, 10, 14, 14)
         f_layout.setSpacing(7)
 
-        btn_style = (
+        # Ghost style buttons (Edit, Retry) — border stroke, no fill
+        ghost_btn_style = (
             "QPushButton {"
-            "  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.07);"
+            f"  background: transparent; border: 1px solid {border_rgba};"
             "  border-radius: 99px; padding: 5px 12px;"
-            "  color: rgba(255,255,255,0.55); font-size: 11px; font-weight: 500;"
+            f"  color: {text_mid_rgba}; font-size: 11px; font-weight: 500;"
             "}"
-            "QPushButton:hover { background: rgba(255,255,255,0.12); color: rgba(255,255,255,0.93); }"
+            f"QPushButton:hover {{ background: {surface_2_rgba}; color: {text_rgba}; }}"
         )
 
         btn_edit = QPushButton("\u270f\ufe0f Edit")
-        btn_edit.setStyleSheet(btn_style)
+        btn_edit.setStyleSheet(ghost_btn_style)
         btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_edit.clicked.connect(self._on_edit)
         f_layout.addWidget(btn_edit)
 
         btn_retry = QPushButton("\U0001f504 Retry")
-        btn_retry.setStyleSheet(btn_style)
+        btn_retry.setStyleSheet(ghost_btn_style)
         btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_retry.clicked.connect(self.retryClicked.emit)
         f_layout.addWidget(btn_retry)
 
         self._char_count = QLabel("0 chars")
-        self._char_count.setFont(font(10))
-        self._char_count.setStyleSheet("color: rgba(255,255,255,0.28); border: none;")
+        self._char_count.setFont(font_sans(10))
+        char_count_color = qcolor_to_rgba(t.text_light)
+        self._char_count.setStyleSheet(f"color: {char_count_color}; border: none;")
         f_layout.addStretch()
         f_layout.addWidget(self._char_count)
 
-        btn_copy = QPushButton("\U0001f4cb Copy & Close")
+        # Copy text button — accent red background
+        red_rgba = qcolor_to_rgba(t.red)
+        red_hover = QColor(
+            min(255, t.red.red() + 20),
+            min(255, t.red.green() + 20),
+            min(255, t.red.blue() + 20),
+        )
+        red_hover_rgba = qcolor_to_rgba(red_hover)
+        btn_copy = QPushButton("\U0001f4cb Copy text")
         btn_copy.setStyleSheet(
             "QPushButton {"
-            "  background: #5bc4ff; border: none; border-radius: 99px;"
-            "  padding: 5px 12px; color: rgba(0,0,0,0.85);"
+            f"  background: {red_rgba}; border: none; border-radius: 99px;"
+            "  padding: 5px 12px; color: rgba(255,255,255,0.95);"
             "  font-size: 11px; font-weight: 600;"
             "}"
-            "QPushButton:hover { background: #7dd4ff; }"
+            f"QPushButton:hover {{ background: {red_hover_rgba}; }}"
         )
         btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_copy.clicked.connect(self._on_copy_close)
@@ -800,55 +890,35 @@ class NotepadWidget(QWidget):
         self._header_dot.start(speed=0.77)
 
     def stop_dot_pulse(self):
+        t = theme()
         self._header_dot.stop()
-        self._header_dot.set_color(T3)
+        self._header_dot.set_color(t.text_light)
         self._header_dot.set_static()
 
     def paintEvent(self, event):
+        t = theme()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(),
-                            RADIUS_CARD, RADIUS_CARD)
+        path.addRoundedRect(0, 0, self.width(), self.height(), RADIUS_CARD, RADIUS_CARD)
 
         # Fill
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(GLASS2)
+        p.setBrush(t.surface)
         p.drawPath(path)
 
         # Border
-        p.setPen(QPen(BORDER_HI, 1))
+        p.setPen(QPen(t.border, 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(path)
 
-        # Inner inset glow
-        inner = QPainterPath()
-        inner.addRoundedRect(1, 1, self.width() - 2, self.height() - 2,
-                             RADIUS_CARD - 1, RADIUS_CARD - 1)
-        p.setPen(QPen(QColor(255, 255, 255, 10), 1))
-        p.drawPath(inner)
-
-        # Inner blue glow (matches CSS box-shadow inset)
-        p.setPen(Qt.PenStyle.NoPen)
-        blue_inner = QColor(91, 196, 255, 13)
-        p.setBrush(blue_inner)
-        p.drawPath(inner)
-
-        # Top sheen (matches .notepad-inner::before)
-        sheen = QLinearGradient(QPointF(14, 0), QPointF(self.width() - 14, 0))
-        sheen.setColorAt(0.0, QColor(0, 0, 0, 0))
-        sheen.setColorAt(0.3, QColor(255, 255, 255, 26))
-        sheen.setColorAt(0.5, QColor(255, 255, 255, 41))
-        sheen.setColorAt(0.7, QColor(255, 255, 255, 26))
-        sheen.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.setBrush(sheen)
-        p.drawRect(14, 0, self.width() - 28, 1)
         p.end()
 
 
 # ════════════════════════════════════════════════════════════
 #  MAIN OVERLAY WINDOW
 # ════════════════════════════════════════════════════════════
+
 
 class OverlayWindow(QWidget):
     """Pill + connector + notepad system. Always bottom-centre of screen."""
@@ -946,6 +1016,8 @@ class OverlayWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
     def _build_widgets(self):
+        t = theme()
+
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(20, 20, 20, 20)
         self._main_layout.setSpacing(0)
@@ -964,11 +1036,12 @@ class OverlayWindow(QWidget):
         idle_l = QHBoxLayout(self._idle_container)
         idle_l.setContentsMargins(0, 0, 0, 0)
         idle_l.setSpacing(10)
-        self._idle_dot = PulsingDot(T4, self._idle_container)
+        self._idle_dot = PulsingDot(t.text_light, self._idle_container)
         idle_l.addWidget(self._idle_dot)
         self._idle_label = QLabel("Hold Right \u2325 to record")
-        self._idle_label.setFont(font(12, 500))
-        self._idle_label.setStyleSheet("color: rgba(255,255,255,0.55);")
+        self._idle_label.setFont(font_sans(13, 500))
+        idle_label_color = qcolor_to_rgba(t.text_mid)
+        self._idle_label.setStyleSheet(f"color: {idle_label_color};")
         idle_l.addWidget(self._idle_label)
         pill_layout.addWidget(self._idle_container)
 
@@ -977,15 +1050,16 @@ class OverlayWindow(QWidget):
         rec_l = QHBoxLayout(self._rec_container)
         rec_l.setContentsMargins(0, 0, 0, 0)
         rec_l.setSpacing(10)
-        self._rec_dot = PulsingDot(RED, self._rec_container)
+        self._rec_dot = PulsingDot(t.red, self._rec_container)
         rec_l.addWidget(self._rec_dot)
         self._waveform = WaveformWidget(self._rec_container)
         rec_l.addWidget(self._waveform)
         self._rec_sep = PillSep(self._rec_container)
         rec_l.addWidget(self._rec_sep)
         self._timer_label = QLabel("0:00")
-        self._timer_label.setFont(font(11))
-        self._timer_label.setStyleSheet("color: rgba(255,255,255,0.28); letter-spacing: 0.2px;")
+        self._timer_label.setFont(font_sans(11, 600))
+        timer_color = qcolor_to_rgba(t.text_light)
+        self._timer_label.setStyleSheet(f"color: {timer_color}; letter-spacing: 0.2px;")
         rec_l.addWidget(self._timer_label)
         self._rec_container.hide()
         pill_layout.addWidget(self._rec_container)
@@ -995,32 +1069,34 @@ class OverlayWindow(QWidget):
         live_l = QHBoxLayout(self._live_container)
         live_l.setContentsMargins(0, 0, 0, 0)
         live_l.setSpacing(10)
-        self._live_dot = PulsingDot(RED, self._live_container)
+        self._live_dot = PulsingDot(t.red, self._live_container)
         live_l.addWidget(self._live_dot)
         self._live_waveform = WaveformWidget(self._live_container)
         live_l.addWidget(self._live_waveform)
         self._live_sep = PillSep(self._live_container)
         live_l.addWidget(self._live_sep)
         self._live_text = QLabel("")
-        self._live_text.setFont(font(12))
-        self._live_text.setStyleSheet("color: rgba(255,255,255,0.93);")
+        self._live_text.setFont(font_serif(13, 400, italic=True))
+        live_text_color = qcolor_to_rgba(t.text)
+        self._live_text.setStyleSheet(f"color: {live_text_color};")
         self._live_text.setMaximumWidth(260)
         live_l.addWidget(self._live_text)
-        self._live_cursor = BlinkingCursor(BLUE, self._live_container)
+        self._live_cursor = BlinkingCursor(t.red, self._live_container)
         live_l.addWidget(self._live_cursor)
         self._live_container.hide()
         pill_layout.addWidget(self._live_container)
 
-        # -- Notepad pill state (blue dot + label) --
+        # -- Notepad pill state (red dot + label) --
         self._np_pill_container = QWidget()
         np_l = QHBoxLayout(self._np_pill_container)
         np_l.setContentsMargins(0, 0, 0, 0)
         np_l.setSpacing(10)
-        self._np_dot = PulsingDot(BLUE, self._np_pill_container)
+        self._np_dot = PulsingDot(t.red, self._np_pill_container)
         np_l.addWidget(self._np_dot)
         self._np_label = QLabel("Tap to edit \u00b7 Right \u2325 to record again")
-        self._np_label.setFont(font(12, 500))
-        self._np_label.setStyleSheet(f"color: {BLUE.name()};")
+        self._np_label.setFont(font_sans(13, 500))
+        np_label_color = qcolor_to_rgba(t.text)
+        self._np_label.setStyleSheet(f"color: {np_label_color};")
         np_l.addWidget(self._np_label)
         self._np_pill_container.hide()
         pill_layout.addWidget(self._np_pill_container)
@@ -1030,20 +1106,21 @@ class OverlayWindow(QWidget):
         suc_l = QHBoxLayout(self._success_container)
         suc_l.setContentsMargins(0, 0, 0, 0)
         suc_l.setSpacing(10)
-        self._success_dot = PulsingDot(GREEN, self._success_container)
+        self._success_dot = PulsingDot(t.green, self._success_container)
         suc_l.addWidget(self._success_dot)
         self._success_label = QLabel("Typed into field")
-        self._success_label.setFont(font(12, 500))
-        self._success_label.setStyleSheet(f"color: {GREEN.name()};")
+        self._success_label.setFont(font_sans(13, 600))
+        success_color = qcolor_to_rgba(t.green)
+        self._success_label.setStyleSheet(f"color: {success_color};")
         suc_l.addWidget(self._success_label)
         self._success_container.hide()
         pill_layout.addWidget(self._success_container)
 
-        # Pill drop shadow (matches CSS box-shadow: 0 8px 32px rgba(0,0,0,0.55))
+        # Pill drop shadow — light, warm shadow for Scribr brand
         self._pill_shadow = QGraphicsDropShadowEffect(self._pill)
         self._pill_shadow.setBlurRadius(32)
         self._pill_shadow.setOffset(0, 8)
-        self._pill_shadow.setColor(QColor(0, 0, 0, 140))
+        self._pill_shadow.setColor(QColor(45, 41, 38, 20))  # rgba(45,41,38,0.08)
         self._pill.setGraphicsEffect(self._pill_shadow)
 
         self._main_layout.addWidget(self._pill, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -1065,9 +1142,7 @@ class OverlayWindow(QWidget):
         self.adjustSize()
 
     def _connect_signals(self):
-        self.rms_received.connect(
-            self._on_rms, Qt.ConnectionType.QueuedConnection
-        )
+        self.rms_received.connect(self._on_rms, Qt.ConnectionType.QueuedConnection)
         self.transcript_received.connect(
             self._on_transcript_update, Qt.ConnectionType.QueuedConnection
         )
@@ -1128,16 +1203,16 @@ class OverlayWindow(QWidget):
     # ── Pill shadow ───────────────────────────────────────────
 
     def _set_pill_shadow_idle(self):
-        """Idle/success: subtle dark shadow only (CSS: 0 4px 16px rgba(0,0,0,0.40))."""
+        """Idle/success: subtle warm shadow."""
         self._pill_shadow.setBlurRadius(16)
         self._pill_shadow.setOffset(0, 4)
-        self._pill_shadow.setColor(QColor(0, 0, 0, 102))
+        self._pill_shadow.setColor(QColor(45, 41, 38, 20))  # rgba(45,41,38,0.08)
 
     def _set_pill_shadow_active(self):
-        """Active states: larger shadow + blue glow (CSS: 0 8px 32px ..., 0 0 24px blue)."""
+        """Active states: recording red glow shadow."""
         self._pill_shadow.setBlurRadius(32)
         self._pill_shadow.setOffset(0, 8)
-        self._pill_shadow.setColor(QColor(0, 0, 0, 140))
+        self._pill_shadow.setColor(QColor(217, 79, 61, 36))  # rgba(217,79,61,0.14)
 
     # ── Particle stream ────────────────────────────────────
 
@@ -1149,12 +1224,12 @@ class OverlayWindow(QWidget):
 
     def _stop_animations(self):
         for anim in self._animations:
-            if hasattr(anim, 'stop'):
+            if hasattr(anim, "stop"):
                 anim.stop()
         self._animations.clear()
 
     def _animate_pill_entrance(self):
-        """Matches CSS pillIn: translateY(16px) scale(0.88) → 0 / 1, 450ms."""
+        """Matches CSS pillIn: translateY(16px) scale(0.88) -> 0 / 1, 450ms."""
         self._pill_translate_y = 16.0
         self._pill_scale = 0.88
         self._widget_opacity = 0.0
@@ -1186,8 +1261,8 @@ class OverlayWindow(QWidget):
         group.start()
 
     def _animate_notepad_open(self):
-        """Matches CSS notepad.open: opacity 0→1, translateY(-8→0).
-        Plus connector height 0→56."""
+        """Matches CSS notepad.open: opacity 0->1, translateY(-8->0).
+        Plus connector height 0->56."""
         group = QParallelAnimationGroup(self)
 
         # Connector height (450ms to match CSS)
@@ -1254,7 +1329,7 @@ class OverlayWindow(QWidget):
         self._reposition()
 
     def _animate_exit_success(self):
-        """Exit: scale 1→0.96, opacity 1→0, translateY +20px, 280ms InCubic."""
+        """Exit: scale 1->0.96, opacity 1->0, translateY +20px, 280ms InCubic."""
         group = QParallelAnimationGroup(self)
 
         sc_anim = QPropertyAnimation(self, b"pill_scale")
@@ -1323,6 +1398,7 @@ class OverlayWindow(QWidget):
         self._particle_stream.stop()
 
     def _enter_idle(self, from_state, **kwargs):
+        t = theme()
         self._stop_animations()
         self._hide_all_pill_states()
 
@@ -1333,7 +1409,7 @@ class OverlayWindow(QWidget):
             self._hide_notepad_instant()
 
         self._idle_container.show()
-        self._idle_dot.set_color(T4)
+        self._idle_dot.set_color(t.text_light)
         self._idle_dot.set_static()
         self._set_pill_shadow_idle()
 
@@ -1404,6 +1480,7 @@ class OverlayWindow(QWidget):
         self._particle_stream.start()
 
     def _enter_result_field(self, from_state, text: str = "", **kwargs):
+        t = theme()
         self._stop_animations()
         self._hide_all_pill_states()
 
@@ -1414,7 +1491,7 @@ class OverlayWindow(QWidget):
             self._hide_notepad_instant()
 
         self._success_container.show()
-        self._success_dot.set_color(GREEN)
+        self._success_dot.set_color(t.green)
         self._success_dot.set_static()
         self._set_pill_shadow_idle()
 
@@ -1434,11 +1511,12 @@ class OverlayWindow(QWidget):
             self.transition_to(OverlayState.IDLE)
 
     def _enter_result_notepad(self, from_state, text: str = "", **kwargs):
+        t = theme()
         self._stop_animations()
         self._hide_all_pill_states()
 
         self._np_pill_container.show()
-        self._np_dot.set_color(BLUE)
+        self._np_dot.set_color(t.red)
         self._np_dot.start(speed=0.7)
         self._live_cursor.stop()
         self._set_pill_shadow_active()
@@ -1467,6 +1545,7 @@ class OverlayWindow(QWidget):
     # ── Painting ─────────────────────────────────────────────
 
     def paintEvent(self, event):
+        t = theme()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setOpacity(self._widget_opacity)
@@ -1477,8 +1556,9 @@ class OverlayWindow(QWidget):
             stream_h = conn_rect.height() + 40
             stream_x = (self.width() - STREAM_WIDTH) / 2
             stream_y = conn_rect.y() - 20
-            self._particle_stream.render(p, stream_x, stream_y,
-                                         float(STREAM_WIDTH), float(stream_h))
+            self._particle_stream.render(
+                p, stream_x, stream_y, float(STREAM_WIDTH), float(stream_h)
+            )
             p.setOpacity(self._widget_opacity)  # restore after particle render
 
         pill_rect = self._pill.geometry()
@@ -1494,48 +1574,31 @@ class OverlayWindow(QWidget):
         # Pill fill
         pill_path = QPainterPath()
         pill_path.addRoundedRect(
-            float(pill_rect.x()), float(pill_rect.y()),
-            float(pill_rect.width()), float(pill_rect.height()),
-            RADIUS_PILL, RADIUS_PILL
+            float(pill_rect.x()),
+            float(pill_rect.y()),
+            float(pill_rect.width()),
+            float(pill_rect.height()),
+            RADIUS_PILL,
+            RADIUS_PILL,
         )
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(GLASS)
+        p.setBrush(t.surface)
         p.drawPath(pill_path)
 
-        # Pill border (dimmer for idle/success, brighter otherwise)
-        is_dim = self._state in (OverlayState.IDLE, OverlayState.RESULT_FIELD)
-        border_color = BORDER if is_dim else BORDER_HI
+        # Pill border — use red_border when recording, normal border otherwise
+        is_recording = self._state in (
+            OverlayState.RECORDING,
+            OverlayState.LIVE_TRANSCRIBING,
+            OverlayState.RESULT_NOTEPAD,
+        )
+        border_color = t.red_border if is_recording else t.border
         p.setPen(QPen(border_color, 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(pill_path)
 
-        # Inner inset highlight
-        inner_path = QPainterPath()
-        inner_path.addRoundedRect(
-            float(pill_rect.x()) + 1, float(pill_rect.y()) + 1,
-            float(pill_rect.width()) - 2, float(pill_rect.height()) - 2,
-            RADIUS_PILL, RADIUS_PILL
-        )
-        p.setPen(QPen(QColor(255, 255, 255, 9), 1))
-        p.drawPath(inner_path)
-
-        # Pill top sheen (matches .pill::before)
-        p.setPen(Qt.PenStyle.NoPen)
-        sheen = QLinearGradient(
-            QPointF(pill_rect.x() + 16, pill_rect.y()),
-            QPointF(pill_rect.right() - 16, pill_rect.y()),
-        )
-        sheen.setColorAt(0.0, QColor(0, 0, 0, 0))
-        sheen.setColorAt(0.4, QColor(255, 255, 255, 56))
-        sheen.setColorAt(0.5, QColor(255, 255, 255, 71))
-        sheen.setColorAt(0.6, QColor(255, 255, 255, 56))
-        sheen.setColorAt(1.0, QColor(0, 0, 0, 0))
-        p.setBrush(sheen)
-        p.drawRect(pill_rect.x() + 16, pill_rect.y(), pill_rect.width() - 32, 1)
-
         p.restore()
 
-        # Connector gradient line (1px, fades at both ends)
+        # Connector gradient line (1px, fades at both ends) — uses border color
         conn_rect = self._connector.geometry()
         if conn_rect.height() > 0:
             cx = conn_rect.center().x()
@@ -1543,13 +1606,13 @@ class OverlayWindow(QWidget):
                 QPointF(cx, conn_rect.y()),
                 QPointF(cx, conn_rect.bottom()),
             )
-            conn_grad.setColorAt(0.0, QColor(91, 196, 255, 0))
-            conn_grad.setColorAt(0.4, QColor(91, 196, 255, 128))
-            conn_grad.setColorAt(0.6, QColor(91, 196, 255, 128))
-            conn_grad.setColorAt(1.0, QColor(91, 196, 255, 0))
+            br, bg, bb = t.border.red(), t.border.green(), t.border.blue()
+            conn_grad.setColorAt(0.0, QColor(br, bg, bb, 0))
+            conn_grad.setColorAt(0.4, QColor(br, bg, bb, 128))
+            conn_grad.setColorAt(0.6, QColor(br, bg, bb, 128))
+            conn_grad.setColorAt(1.0, QColor(br, bg, bb, 0))
             p.setPen(QPen(QBrush(conn_grad), 1))
-            p.drawLine(QPointF(cx, conn_rect.y()),
-                       QPointF(cx, conn_rect.bottom()))
+            p.drawLine(QPointF(cx, conn_rect.y()), QPointF(cx, conn_rect.bottom()))
 
         # Notepad with opacity + translate
         if self._notepad.isVisible() and self._notepad_opacity > 0.01:

@@ -1,0 +1,46 @@
+[project]
+name = "scribr"
+version = "1.0.0"
+description = "macOS voice-to-text menubar app"
+requires-python = ">=3.12"
+dependencies = [
+    "PyQt6>=6.6",
+    "rumps>=0.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.9",
+    "mypy>=1.14",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = [
+    "N802",   # function name should be lowercase (Qt overrides like paintEvent)
+    "N803",   # argument name should be lowercase (Qt args)
+    "N806",   # variable in function should be lowercase (Qt locals like T1, T2)
+    "N815",   # mixedCase variable in class scope (Qt properties)
+    "N816",   # mixedCase variable in global scope
+    "E501",   # line too long — handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-third-party = ["PyQt6", "rumps"]
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["VoiceType"]

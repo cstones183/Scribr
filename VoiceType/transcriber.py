@@ -4,10 +4,8 @@
 
 import io
 import json
-from typing import Optional
 
 import requests
-
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
 OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
@@ -15,6 +13,7 @@ OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
 
 class TranscriptionError(Exception):
     """Raised when transcription fails."""
+
     pass
 
 
@@ -37,7 +36,7 @@ class GroqTranscriber:
     def transcribe(
         self,
         wav_bytes: bytes,
-        language: Optional[str] = None,
+        language: str | None = None,
         model: str = "whisper-large-v3",
     ) -> str:
         """Send WAV bytes to Groq Whisper API, return transcribed text.
@@ -84,9 +83,7 @@ class GroqTranscriber:
             raise TranscriptionError("Invalid Groq API key.")
 
         if resp.status_code != 200:
-            raise TranscriptionError(
-                f"Groq API error {resp.status_code}: {resp.text[:200]}"
-            )
+            raise TranscriptionError(f"Groq API error {resp.status_code}: {resp.text[:200]}")
 
         try:
             result = resp.json()
@@ -113,7 +110,7 @@ class OpenAITranscriber:
     def transcribe(
         self,
         wav_bytes: bytes,
-        language: Optional[str] = None,
+        language: str | None = None,
         model: str = "whisper-1",
     ) -> str:
         """Send WAV bytes to OpenAI Whisper API, return transcribed text."""
@@ -145,9 +142,7 @@ class OpenAITranscriber:
             raise TranscriptionError("Invalid OpenAI API key.")
 
         if resp.status_code != 200:
-            raise TranscriptionError(
-                f"OpenAI API error {resp.status_code}: {resp.text[:200]}"
-            )
+            raise TranscriptionError(f"OpenAI API error {resp.status_code}: {resp.text[:200]}")
 
         try:
             result = resp.json()

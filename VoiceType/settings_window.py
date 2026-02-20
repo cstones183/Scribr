@@ -1,177 +1,200 @@
-# settings_window.py — Tabbed settings dialog matching the HTML prototype.
-# Frameless, glass-backed, 560px wide, 4 tabs.
+# settings_window.py — Tabbed settings dialog for Scribr.
+# Frameless, 560px wide, 4 tabs, warm coral accent.
 
-from PyQt6.QtWidgets import (
-    QWidget, QLabel, QHBoxLayout, QVBoxLayout, QGridLayout,
-    QStackedWidget, QLineEdit, QComboBox, QPushButton, QFrame,
-    QSizePolicy, QApplication,
-)
-from PyQt6.QtCore import Qt, pyqtSignal, QRect, QPointF, QTimer
+from __future__ import annotations
+
+from PyQt6.QtCore import QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import (
-    QPainter, QColor, QPen, QBrush, QPainterPath, QLinearGradient,
+    QPainter,
+    QPainterPath,
+    QPen,
 )
-
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QFrame,
+    QGridLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+from settings import LANGUAGES, SettingsManager
 from style import (
-    NAVY, GLASS, GLASS2, GLASS3,
-    BORDER, BORDER_HI, BORDER_FOCUS,
-    BLUE, BLUE_SOFT, BLUE_GLOW, BLUE_DIM, BLUE_BORDER,
-    GREEN, GREEN_DIM, RED, AMBER,
-    T1, T2, T3, T4, T5,
-    font,
-    RADIUS_CARD, RADIUS_MD, RADIUS_SM, RADIUS_XS, RADIUS_BTN,
+    RADIUS_CARD,
+    RADIUS_MD,
+    RADIUS_SM,
+    font_sans,
+    font_serif,
+    qcolor_to_rgba,
+    theme,
 )
-from settings import SettingsManager, LANGUAGES
-from widgets import ToggleSwitch, SegmentedControl, PositionChip, ThemeChip, ToastWidget
-
+from widgets import PositionChip, SegmentedControl, ToastWidget, ToggleSwitch
 
 # ════════════════════════════════════════════════════════════
-#  SHARED STYLESHEET SNIPPETS
+#  STYLESHEET GENERATORS
 # ════════════════════════════════════════════════════════════
 
-INPUT_SS = (
-    "QLineEdit {"
-    "  background: rgba(255,255,255,0.04);"
-    "  border: 1px solid rgba(255,255,255,0.09);"
-    f"  border-radius: {RADIUS_SM}px;"
-    "  color: rgba(255,255,255,0.93);"
-    "  font-size: 13px;"
-    "  padding: 9px 38px 9px 12px;"
-    "}"
-    "QLineEdit:focus {"
-    "  border-color: rgba(77,184,255,0.50);"
-    "  background: rgba(255,255,255,0.055);"
-    "}"
-)
 
-SELECT_SS = (
-    "QComboBox {"
-    "  background: rgba(255,255,255,0.04);"
-    "  border: 1px solid rgba(255,255,255,0.09);"
-    f"  border-radius: {RADIUS_SM}px;"
-    "  color: rgba(255,255,255,0.93);"
-    "  font-size: 13px;"
-    "  padding: 9px 12px;"
-    "}"
-    "QComboBox:focus {"
-    "  border-color: rgba(77,184,255,0.50);"
-    "}"
-    "QComboBox::drop-down {"
-    "  border: none;"
-    "  width: 28px;"
-    "}"
-    "QComboBox::down-arrow {"
-    "  image: none;"
-    "  width: 0; height: 0;"
-    "}"
-    "QComboBox QAbstractItemView {"
-    "  background: rgb(15,21,37);"
-    "  color: rgba(255,255,255,0.90);"
-    "  border: 1px solid rgba(255,255,255,0.12);"
-    f"  border-radius: {RADIUS_SM}px;"
-    "  selection-background-color: rgba(91,196,255,0.16);"
-    "  selection-color: rgb(91,196,255);"
-    "  outline: none;"
-    "  padding: 4px;"
-    "}"
-)
+def _input_ss() -> str:
+    t = theme()
+    return (
+        "QLineEdit {"
+        f"  background: {qcolor_to_rgba(t.surface_2)};"
+        f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+        f"  border-radius: {RADIUS_SM}px;"
+        f"  color: {t.text.name()};"
+        "  font-size: 13px;"
+        "  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;"
+        "  padding: 9px 38px 9px 12px;"
+        "}"
+        "QLineEdit:focus {"
+        f"  border-color: {qcolor_to_rgba(t.red_focus)};"
+        "}"
+    )
 
-BTN_GHOST_SS = (
-    "QPushButton {"
-    f"  border-radius: {RADIUS_SM}px;"
-    "  background: transparent;"
-    "  border: 1px solid rgba(255,255,255,0.10);"
-    "  color: rgba(255,255,255,0.55);"
-    "  font-size: 12px;"
-    "  font-weight: 500;"
-    "  padding: 7px 16px;"
-    "}"
-    "QPushButton:hover {"
-    "  background: rgba(255,255,255,0.06);"
-    "  color: rgba(255,255,255,0.93);"
-    "}"
-)
 
-BTN_SAVE_SS = (
-    "QPushButton {"
-    f"  border-radius: {RADIUS_SM}px;"
-    "  background: rgb(91,196,255);"
-    "  border: none;"
-    "  color: rgba(0,0,0,0.85);"
-    "  font-size: 12px;"
-    "  font-weight: 600;"
-    "  padding: 7px 20px;"
-    "}"
-    "QPushButton:hover {"
-    "  background: rgb(125,212,255);"
-    "}"
-)
+def _select_ss() -> str:
+    t = theme()
+    return (
+        "QComboBox {"
+        f"  background: {qcolor_to_rgba(t.surface_2)};"
+        f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+        f"  border-radius: {RADIUS_SM}px;"
+        f"  color: {t.text.name()};"
+        "  font-size: 13px;"
+        "  font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;"
+        "  padding: 9px 28px 9px 12px;"
+        "}"
+        "QComboBox:focus {"
+        f"  border-color: {qcolor_to_rgba(t.red_focus)};"
+        "}"
+        "QComboBox::drop-down { border: none; width: 28px; }"
+        "QComboBox::down-arrow { image: none; width: 0; height: 0; }"
+        "QComboBox QAbstractItemView {"
+        f"  background: {t.surface.name()};"
+        f"  color: {t.text.name()};"
+        f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+        f"  border-radius: {RADIUS_SM}px;"
+        f"  selection-background-color: {qcolor_to_rgba(t.red_soft)};"
+        f"  selection-color: {t.red.name()};"
+        "  outline: none; padding: 4px;"
+        "}"
+    )
+
+
+def _btn_ghost_ss() -> str:
+    t = theme()
+    return (
+        "QPushButton {"
+        "  border-radius: 999px;"
+        "  background: transparent;"
+        f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+        f"  color: {qcolor_to_rgba(t.text_mid)};"
+        "  font-size: 13px; font-weight: 500;"
+        "  padding: 8px 16px;"
+        "}"
+        "QPushButton:hover {"
+        f"  background: {qcolor_to_rgba(t.surface_3)};"
+        f"  color: {t.text.name()};"
+        "}"
+    )
+
+
+def _btn_save_ss() -> str:
+    t = theme()
+    return (
+        "QPushButton {"
+        "  border-radius: 999px;"
+        f"  background: {t.red.name()};"
+        "  border: none;"
+        "  color: white;"
+        "  font-size: 13px; font-weight: 600;"
+        "  padding: 8px 22px;"
+        "  letter-spacing: -0.01em;"
+        "}"
+        "QPushButton:hover { background: #c44434; }"
+    )
 
 
 # ════════════════════════════════════════════════════════════
 #  HELPERS
 # ════════════════════════════════════════════════════════════
 
+
 def _section_title(text: str) -> QLabel:
-    """Blue section heading with trailing line."""
+    """Red section heading label."""
+    t = theme()
     lbl = QLabel(text)
-    lbl.setFont(font(9, 700))
+    lbl.setFont(font_sans(9, 600))
     lbl.setStyleSheet(
-        "color: rgb(91,196,255);"
+        f"color: {t.red.name()};"
         "letter-spacing: 2.5px;"
         "text-transform: uppercase;"
-        "background: transparent;"
-        "border: none;"
+        "background: transparent; border: none;"
     )
     return lbl
 
 
 def _section_line() -> QFrame:
+    t = theme()
     line = QFrame()
     line.setFrameShape(QFrame.Shape.HLine)
     line.setFixedHeight(1)
-    line.setStyleSheet("background: rgba(91,196,255,0.15); border: none;")
+    line.setStyleSheet(f"background: {qcolor_to_rgba(t.border)}; border: none;")
     return line
 
 
 def _field_label(text: str) -> QLabel:
+    t = theme()
     lbl = QLabel(text)
-    lbl.setFont(font(11, 500))
-    lbl.setStyleSheet("color: rgba(255,255,255,0.55); background: transparent; border: none;")
+    lbl.setFont(font_sans(13, 500))
+    lbl.setStyleSheet(
+        f"color: {t.text.name()}; background: transparent; border: none;"
+        " letter-spacing: -0.01em;"
+    )
     return lbl
 
 
 def _hint(text: str) -> QLabel:
+    t = theme()
     lbl = QLabel(text)
-    lbl.setFont(font(10, 400))
+    lbl.setFont(font_serif(11, 400, italic=True))
     lbl.setWordWrap(True)
-    lbl.setStyleSheet("color: rgba(255,255,255,0.28); background: transparent; border: none;")
+    lbl.setStyleSheet(
+        f"color: {qcolor_to_rgba(t.text_light)};"
+        " background: transparent; border: none; line-height: 1.5;"
+    )
     return lbl
 
 
 def _badge(text: str, active: bool = True) -> QLabel:
+    t = theme()
     lbl = QLabel(text)
-    lbl.setFont(font(9, 700))
+    lbl.setFont(font_sans(9, 600))
     if active:
         lbl.setStyleSheet(
-            "background: rgba(91,196,255,0.10);"
-            "color: rgb(91,196,255);"
-            "border: 1px solid rgba(91,196,255,0.20);"
-            f"border-radius: 4px;"
-            "padding: 2px 7px;"
+            f"background: {qcolor_to_rgba(t.red_soft)};"
+            f"color: {t.red.name()};"
+            f"border: 1px solid {qcolor_to_rgba(t.red_border)};"
+            "border-radius: 999px; padding: 3px 9px;"
+            " letter-spacing: 0.1em; text-transform: uppercase;"
         )
     else:
         lbl.setStyleSheet(
-            "background: rgba(255,255,255,0.04);"
-            "color: rgba(255,255,255,0.28);"
-            "border: 1px solid rgba(255,255,255,0.07);"
-            f"border-radius: 4px;"
-            "padding: 2px 7px;"
+            f"background: {qcolor_to_rgba(t.surface_2)};"
+            f"color: {qcolor_to_rgba(t.text_light)};"
+            f"border: 1px solid {qcolor_to_rgba(t.border)};"
+            "border-radius: 999px; padding: 3px 9px;"
+            " letter-spacing: 0.1em; text-transform: uppercase;"
         )
     return lbl
 
 
 def _section_header(text: str) -> QWidget:
-    """Section title + trailing gradient line in a row."""
+    """Section title + trailing line in a row."""
     row = QWidget()
     row.setStyleSheet("background: transparent; border: none;")
     h = QHBoxLayout(row)
@@ -186,73 +209,74 @@ def _section_header(text: str) -> QWidget:
 #  TAB BUTTON
 # ════════════════════════════════════════════════════════════
 
-class _TabButton(QPushButton):
-    """Single tab in the tab bar."""
 
-    def __init__(self, icon: str, label: str, parent=None):
-        super().__init__(f"{icon}  {label}", parent)
+class _TabButton(QPushButton):
+    """Single tab in the tab bar — icon above label."""
+
+    def __init__(self, icon: str, label: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._icon_text = icon
+        self._label_text = label
         self._active = False
-        self.setFont(font(12, 500))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(38)
+        self.setFixedHeight(44)
         self._apply_style()
 
-    def set_active(self, active: bool):
+    def set_active(self, active: bool) -> None:
         self._active = active
         self._apply_style()
 
-    def _apply_style(self):
+    def _apply_style(self) -> None:
+        t = theme()
         if self._active:
             self.setStyleSheet(
                 "QPushButton {"
-                "  color: rgb(91,196,255);"
-                "  background: rgba(91,196,255,0.08);"
-                "  border: none;"
-                "  border-bottom: 2px solid rgb(91,196,255);"
-                f"  border-radius: {RADIUS_XS}px {RADIUS_XS}px 0px 0px;"
-                "  padding: 8px 14px 10px;"
-                "  letter-spacing: 0.2px;"
+                f"  color: {t.red.name()};"
+                "  background: transparent; border: none;"
+                f"  border-bottom: 2px solid {t.red.name()};"
+                "  padding: 10px 4px 9px;"
+                "  font-size: 11px; font-weight: 600;"
+                "  letter-spacing: 0.03em;"
                 "}"
             )
         else:
             self.setStyleSheet(
                 "QPushButton {"
-                "  color: rgba(255,255,255,0.28);"
-                "  background: transparent;"
-                "  border: none;"
+                f"  color: {qcolor_to_rgba(t.text_light)};"
+                "  background: transparent; border: none;"
                 "  border-bottom: 2px solid transparent;"
-                f"  border-radius: {RADIUS_XS}px {RADIUS_XS}px 0px 0px;"
-                "  padding: 8px 14px 10px;"
-                "  letter-spacing: 0.2px;"
+                "  padding: 10px 4px 9px;"
+                "  font-size: 11px; font-weight: 600;"
+                "  letter-spacing: 0.03em;"
                 "}"
                 "QPushButton:hover {"
-                "  color: rgba(255,255,255,0.55);"
-                "  background: rgba(255,255,255,0.03);"
+                f"  color: {qcolor_to_rgba(t.text_mid)};"
                 "}"
             )
+        self.setText(f"{self._icon_text}\n{self._label_text}")
 
 
 # ════════════════════════════════════════════════════════════
 #  SETTINGS WINDOW
 # ════════════════════════════════════════════════════════════
 
+
 class SettingsWindow(QWidget):
-    """Frameless, glass-backed settings dialog — 560px wide, 4 tabs."""
+    """Frameless settings dialog — 560px wide, 4 tabs, Scribr brand."""
 
     settings_saved = pyqtSignal()
 
-    def __init__(self, settings: SettingsManager, parent=None):
+    def __init__(self, settings: SettingsManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
 
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedWidth(560)
 
-        self._drag_pos = None
+        self._drag_pos: QPoint | None = None
 
         # ── Main layout ──────────────────────────────────
         root = QVBoxLayout(self)
@@ -289,10 +313,11 @@ class SettingsWindow(QWidget):
         self._switch_tab(0)
 
     # ─────────────────────────────────────────────────────
-    #  GLASS PAINT
+    #  PAINT — solid surface fill
     # ─────────────────────────────────────────────────────
 
-    def paintEvent(self, event):
+    def paintEvent(self, event: object) -> None:  # type: ignore[override]
+        t = theme()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
@@ -302,25 +327,15 @@ class SettingsWindow(QWidget):
         path.addRoundedRect(0, 0, w, h, r, r)
         p.setClipPath(path)
 
-        # Glass fill
+        # Solid surface fill
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(GLASS3)
+        p.setBrush(t.surface)
         p.drawPath(path)
 
         # Border
-        p.setPen(QPen(BORDER_HI, 1))
+        p.setPen(QPen(t.border, 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(0, 0, w, h, r, r)
-
-        # Top sheen
-        sheen = QLinearGradient(QPointF(14, 0), QPointF(w - 14, 0))
-        sheen.setColorAt(0.0, QColor(255, 255, 255, 0))
-        sheen.setColorAt(0.25, QColor(255, 255, 255, 26))
-        sheen.setColorAt(0.50, QColor(255, 255, 255, 41))
-        sheen.setColorAt(0.75, QColor(255, 255, 255, 26))
-        sheen.setColorAt(1.0, QColor(255, 255, 255, 0))
-        p.setPen(QPen(QBrush(sheen), 1))
-        p.drawLine(14, 0, w - 14, 0)
         p.end()
 
     # ─────────────────────────────────────────────────────
@@ -328,11 +343,12 @@ class SettingsWindow(QWidget):
     # ─────────────────────────────────────────────────────
 
     def _build_titlebar(self) -> QWidget:
+        t = theme()
         bar = QWidget()
         bar.setFixedHeight(48)
         bar.setStyleSheet(
-            "background: rgba(255,255,255,0.02);"
-            "border-bottom: 1px solid rgba(255,255,255,0.07);"
+            f"background: {qcolor_to_rgba(t.surface_2)};"
+            f"border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
         )
         h = QHBoxLayout(bar)
         h.setContentsMargins(18, 0, 18, 0)
@@ -345,7 +361,7 @@ class SettingsWindow(QWidget):
             dot.setCursor(Qt.CursorShape.PointingHandCursor)
             dot.setStyleSheet(
                 f"QPushButton {{ background: {color}; border-radius: 6px; border: none; }}"
-                f"QPushButton:hover {{ background: {color}; }}"
+                f"QPushButton:hover {{ filter: brightness(0.88); }}"
             )
             if color == "#ff5f57":
                 dot.clicked.connect(self.close)
@@ -354,14 +370,16 @@ class SettingsWindow(QWidget):
 
         h.addStretch()
 
-        title = QLabel("VoiceType Settings")
-        title.setFont(font(13, 600))
-        title.setStyleSheet("color: rgba(255,255,255,0.93); background: transparent; border: none;")
+        title = QLabel("Scribr Settings")
+        title.setFont(font_serif(14, 600))
+        title.setStyleSheet(
+            f"color: {t.text.name()}; background: transparent; border: none;"
+            " letter-spacing: -0.01em;"
+        )
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         h.addWidget(title)
 
         h.addStretch()
-        # Spacer to balance traffic lights
         spacer = QWidget()
         spacer.setFixedWidth(52)
         spacer.setStyleSheet("background: transparent; border: none;")
@@ -374,14 +392,15 @@ class SettingsWindow(QWidget):
     # ─────────────────────────────────────────────────────
 
     def _build_tab_bar(self) -> tuple[QWidget, list[_TabButton]]:
+        t = theme()
         bar = QWidget()
         bar.setStyleSheet(
-            "background: rgba(255,255,255,0.01);"
-            "border-bottom: 1px solid rgba(255,255,255,0.07);"
+            f"background: {qcolor_to_rgba(t.surface_2)};"
+            f"border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
         )
         h = QHBoxLayout(bar)
-        h.setContentsMargins(18, 12, 18, 0)
-        h.setSpacing(2)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
 
         tab_defs = [
             ("\U0001f511", "API Keys"),
@@ -390,17 +409,16 @@ class SettingsWindow(QWidget):
             ("\u2139\ufe0f", "About"),
         ]
 
-        tabs = []
+        tabs: list[_TabButton] = []
         for i, (icon, label) in enumerate(tab_defs):
             btn = _TabButton(icon, label)
             btn.clicked.connect(lambda checked, idx=i: self._switch_tab(idx))
-            h.addWidget(btn)
+            h.addWidget(btn, 1)
             tabs.append(btn)
-        h.addStretch()
 
         return bar, tabs
 
-    def _switch_tab(self, idx: int):
+    def _switch_tab(self, idx: int) -> None:
         for i, tab in enumerate(self._tabs):
             tab.set_active(i == idx)
         self._stack.setCurrentIndex(idx)
@@ -410,6 +428,7 @@ class SettingsWindow(QWidget):
     # ─────────────────────────────────────────────────────
 
     def _build_api_tab(self) -> QWidget:
+        t = theme()
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
         v = QVBoxLayout(page)
@@ -426,7 +445,7 @@ class SettingsWindow(QWidget):
         rl.setContentsMargins(0, 0, 0, 0)
         rl.addWidget(_field_label("OpenAI API Key"))
         rl.addStretch()
-        rl.addWidget(_badge("Active", True))
+        rl.addWidget(_badge("Active", active=True))
         v.addWidget(row_label)
 
         # Input + eye toggle
@@ -438,7 +457,7 @@ class SettingsWindow(QWidget):
         self._openai_input = QLineEdit()
         self._openai_input.setEchoMode(QLineEdit.EchoMode.Password)
         self._openai_input.setPlaceholderText("sk-...")
-        self._openai_input.setStyleSheet(INPUT_SS)
+        self._openai_input.setStyleSheet(_input_ss())
         self._openai_input.setMinimumHeight(38)
         il.addWidget(self._openai_input)
 
@@ -447,17 +466,18 @@ class SettingsWindow(QWidget):
         self._eye_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._eye_btn.setStyleSheet(
             "QPushButton { background: transparent; border: none; font-size: 14px;"
-            " color: rgba(255,255,255,0.28); }"
-            "QPushButton:hover { color: rgba(255,255,255,0.55);"
-            " background: rgba(255,255,255,0.06); border-radius: 4px; }"
+            f" color: {qcolor_to_rgba(t.text_light)}; }}"
+            "QPushButton:hover {"
+            f" color: {qcolor_to_rgba(t.text_mid)};"
+            f" background: {qcolor_to_rgba(t.surface_2)}; border-radius: 4px; }}"
         )
         self._eye_btn.clicked.connect(self._toggle_eye)
         il.addWidget(self._eye_btn)
         v.addWidget(input_wrap)
 
-        v.addWidget(_hint(
-            "Powers: Whisper transcription · GPT-4o-mini cleanup · ~$0.006/min"
-        ))
+        v.addWidget(
+            _hint("Whisper transcription \u00b7 GPT-4o-mini cleanup \u00b7 ~$0.006/min")
+        )
 
         # ── Coming Soon section ──
         v.addSpacing(8)
@@ -466,33 +486,42 @@ class SettingsWindow(QWidget):
         cs_frame = QFrame()
         cs_frame.setStyleSheet(
             "QFrame {"
-            "  background: rgba(255,255,255,0.02);"
-            "  border: 1px solid rgba(255,255,255,0.07);"
-            f"  border-radius: {RADIUS_MD}px;"
+            f"  background: {t.surface.name()};"
+            f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+            f"  border-radius: {RADIUS_SM}px;"
             "}"
         )
         cs_v = QVBoxLayout(cs_frame)
-        cs_v.setContentsMargins(12, 12, 12, 12)
-        cs_v.setSpacing(8)
+        cs_v.setContentsMargins(0, 0, 0, 0)
+        cs_v.setSpacing(0)
 
         providers = [
-            ("\U0001f30a", "rgba(255,140,80,0.15)", "Deepgram", "Ultra-fast streaming transcription"),
-            ("\u26a1", "rgba(140,80,255,0.15)", "Groq", "Whisper at 10x inference speed"),
-            ("\U0001f50a", "rgba(80,180,255,0.15)", "AssemblyAI", "Speaker detection + smart formatting"),
+            ("\U0001f30a", "Deepgram", "Ultra-fast streaming transcription"),
+            ("\u26a1", "Groq", "Whisper at 10x inference speed"),
+            ("\U0001f50a", "AssemblyAI", "Speaker detection + smart formatting"),
         ]
-        for emoji, bg, name, desc in providers:
+        for i, (emoji, name, desc) in enumerate(providers):
             row = QWidget()
-            row.setStyleSheet("background: transparent; border: none;")
+            row.setStyleSheet(
+                f"background: {qcolor_to_rgba(t.surface_2)}; border: none;"
+                + (
+                    f" border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
+                    if i < len(providers) - 1
+                    else ""
+                )
+            )
+            row.setFixedHeight(52)
             rh = QHBoxLayout(row)
-            rh.setContentsMargins(0, 0, 0, 0)
-            rh.setSpacing(8)
+            rh.setContentsMargins(14, 0, 14, 0)
+            rh.setSpacing(12)
 
             logo = QLabel(emoji)
-            logo.setFixedSize(22, 22)
+            logo.setFixedSize(28, 28)
             logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
             logo.setStyleSheet(
-                f"background: {bg}; border-radius: 5px; font-size: 11px;"
-                " border: none; opacity: 0.45;"
+                f"background: {t.surface.name()};"
+                f" border: 1px solid {qcolor_to_rgba(t.border)};"
+                f" border-radius: {RADIUS_SM}px; font-size: 14px;"
             )
             rh.addWidget(logo)
 
@@ -502,23 +531,30 @@ class SettingsWindow(QWidget):
             iv.setContentsMargins(0, 0, 0, 0)
             iv.setSpacing(1)
             n = QLabel(name)
-            n.setFont(font(12, 400))
-            n.setStyleSheet("color: rgba(255,255,255,0.28); background: transparent; border: none;")
+            n.setFont(font_sans(13, 500))
+            n.setStyleSheet(
+                f"color: {t.text.name()}; background: transparent; border: none;"
+            )
             iv.addWidget(n)
             d = QLabel(desc)
-            d.setFont(font(10, 400))
-            d.setStyleSheet("color: rgba(255,255,255,0.12); background: transparent; border: none;")
+            d.setFont(font_serif(11, 400, italic=True))
+            d.setStyleSheet(
+                f"color: {qcolor_to_rgba(t.text_light)};"
+                " background: transparent; border: none;"
+            )
             iv.addWidget(d)
             rh.addWidget(info, 1)
 
-            rh.addWidget(_badge("Soon", False))
+            rh.addWidget(_badge("Soon", active=False))
             cs_v.addWidget(row)
 
+        # Dim the whole coming-soon frame
+        cs_frame.setGraphicsEffect(None)
         v.addWidget(cs_frame)
         v.addStretch()
         return page
 
-    def _toggle_eye(self):
+    def _toggle_eye(self) -> None:
         if self._openai_input.echoMode() == QLineEdit.EchoMode.Password:
             self._openai_input.setEchoMode(QLineEdit.EchoMode.Normal)
             self._eye_btn.setText("\U0001f648")
@@ -537,28 +573,29 @@ class SettingsWindow(QWidget):
         v.setContentsMargins(20, 20, 20, 20)
         v.setSpacing(20)
 
-        # ── Mode section ──
-        v.addWidget(_section_header("Mode"))
+        # ── Engine section ──
+        v.addWidget(_section_header("Engine"))
 
-        v.addWidget(_field_label("Transcription Engine"))
-        self._mode_seg = SegmentedControl(["☁️  API (OpenAI)", "💻  Local (Offline)"])
+        v.addWidget(_field_label("Transcription Mode"))
+        self._mode_seg = SegmentedControl(["\u2601\ufe0f  API", "\U0001f4bb  Local"])
         v.addWidget(self._mode_seg)
-        v.addWidget(_hint(
-            "Local mode uses Whisper running on your Mac. Free, offline, ~1s on Apple Silicon."
-        ))
+        v.addWidget(
+            _hint(
+                "Local mode uses Whisper on your Mac. Free, offline, ~1s on Apple Silicon."
+            )
+        )
 
         v.addWidget(_field_label("Local Model Size"))
         self._model_combo = QComboBox()
-        self._model_combo.setStyleSheet(SELECT_SS)
+        self._model_combo.setStyleSheet(_select_ss())
         self._model_combo.setMinimumHeight(38)
         self._model_combo.addItems([
-            "tiny — 75MB · Fastest",
-            "base — 145MB · Recommended",
-            "small — 460MB · Better accuracy",
-            "medium — 1.5GB · Best accuracy",
+            "tiny \u2014 75MB \u00b7 Fastest",
+            "base \u2014 145MB \u00b7 Recommended",
+            "small \u2014 460MB \u00b7 Better accuracy",
+            "medium \u2014 1.5GB \u00b7 Best accuracy",
         ])
         v.addWidget(self._model_combo)
-        v.addWidget(_hint("Only used in Local mode. Downloads once on first use."))
 
         # ── Language & Cleanup section ──
         v.addSpacing(4)
@@ -566,54 +603,65 @@ class SettingsWindow(QWidget):
 
         v.addWidget(_field_label("Language"))
         self._lang_combo = QComboBox()
-        self._lang_combo.setStyleSheet(SELECT_SS)
+        self._lang_combo.setStyleSheet(_select_ss())
         self._lang_combo.setMinimumHeight(38)
         for display, code in LANGUAGES:
             self._lang_combo.addItem(display, code)
         v.addWidget(self._lang_combo)
 
-        # AI Cleanup toggle row
+        # AI Cleanup toggle
         self._ai_cleanup_toggle = ToggleSwitch(True)
-        v.addWidget(self._toggle_row(
-            "AI Cleanup",
-            "Remove filler words (um, uh, like) and fix punctuation via GPT-4o-mini",
-            self._ai_cleanup_toggle,
-        ))
+        v.addWidget(
+            self._toggle_row(
+                "AI Cleanup",
+                "Remove filler words and fix punctuation via GPT-4o-mini",
+                self._ai_cleanup_toggle,
+            )
+        )
 
-        # Confidence toggle row
+        # Confidence toggle
         self._confidence_toggle = ToggleSwitch(True)
-        v.addWidget(self._toggle_row(
-            "Show Confidence Highlights",
-            "Underline low-confidence words in amber for easy review",
-            self._confidence_toggle,
-        ))
+        v.addWidget(
+            self._toggle_row(
+                "Confidence Highlights",
+                "Underline uncertain words in amber for easy review",
+                self._confidence_toggle,
+            )
+        )
 
-        # ── Hotkey section ──
+        # ── Shortcut section ──
         v.addSpacing(4)
-        v.addWidget(_section_header("Hotkey"))
-        v.addWidget(_field_label("Current Shortcut"))
+        v.addWidget(_section_header("Shortcut"))
 
         hotkey_row = QWidget()
         hotkey_row.setStyleSheet("background: transparent; border: none;")
         hk = QHBoxLayout(hotkey_row)
         hk.setContentsMargins(0, 0, 0, 0)
-        hk.setSpacing(8)
-        key_cap = QLabel("Right ⌥")
-        key_cap.setFont(font(12, 500))
+        hk.setSpacing(14)
+
+        info = QWidget()
+        info.setStyleSheet("background: transparent; border: none;")
+        iv = QVBoxLayout(info)
+        iv.setContentsMargins(0, 0, 0, 0)
+        iv.setSpacing(2)
+        iv.addWidget(_field_label("Record Shortcut"))
+        iv.addWidget(_hint("Hold to record \u00b7 Release to transcribe"))
+        hk.addWidget(info, 1)
+
+        t = theme()
+        key_cap = QLabel("Right \u2325")
+        key_cap.setFont(font_sans(12, 600))
         key_cap.setStyleSheet(
-            "background: rgba(255,255,255,0.06);"
-            "border: 1px solid rgba(255,255,255,0.12);"
-            "border-bottom: 2px solid rgba(255,255,255,0.18);"
-            "border-radius: 6px;"
-            "color: rgba(255,255,255,0.93);"
-            "padding: 4px 10px;"
+            f"background: {qcolor_to_rgba(t.surface_2)};"
+            f"border: 1px solid {qcolor_to_rgba(t.border_2)};"
+            f"border-bottom: 2px solid {qcolor_to_rgba(t.border_2)};"
+            f"border-radius: 7px;"
+            f"color: {t.text.name()};"
+            "padding: 4px 12px;"
         )
         hk.addWidget(key_cap)
-        hk.addWidget(_hint("Hold to record · Release to transcribe"))
-        hk.addStretch()
         v.addWidget(hotkey_row)
 
-        v.addWidget(_hint("To change: edit settings.json or re-run setup wizard"))
         v.addStretch()
         return page
 
@@ -632,28 +680,30 @@ class SettingsWindow(QWidget):
         v.addWidget(_section_header("Overlay"))
 
         self._overlay_toggle = ToggleSwitch(True)
-        v.addWidget(self._toggle_row(
-            "Show Recording Overlay",
-            "Floating pill with waveform and live transcript while recording",
-            self._overlay_toggle,
-        ))
+        v.addWidget(
+            self._toggle_row(
+                "Show Recording Overlay",
+                "Floating pill with waveform and live transcript while recording",
+                self._overlay_toggle,
+            )
+        )
 
         v.addWidget(_field_label("Overlay Position"))
 
-        # 2×3 position grid
+        # 2x3 position grid
         pos_grid = QWidget()
         pos_grid.setStyleSheet("background: transparent; border: none;")
         grid = QGridLayout(pos_grid)
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(6)
+        grid.setSpacing(4)
 
         positions = [
-            ("↖", "Top Left",       "top_left"),
-            ("⬆", "Top Centre",     "top_centre"),
-            ("↗", "Top Right",      "top_right"),
-            ("↙", "Bottom Left",    "bottom_left"),
-            ("⬇", "Bottom Centre",  "bottom_centre"),
-            ("↘", "Bottom Right",   "bottom_right"),
+            ("\u2196", "Top Left", "top_left"),
+            ("\u2b06", "Top Centre", "top_centre"),
+            ("\u2197", "Top Right", "top_right"),
+            ("\u2199", "Bot Left", "bottom_left"),
+            ("\u2b07", "Bot Centre", "bottom_centre"),
+            ("\u2198", "Bot Right", "bottom_right"),
         ]
         self._pos_chips: list[tuple[PositionChip, str]] = []
         for i, (icon, label, key) in enumerate(positions):
@@ -664,119 +714,92 @@ class SettingsWindow(QWidget):
             self._pos_chips.append((chip, key))
         v.addWidget(pos_grid)
 
-        # ── Theme section ──
+        # ── Accessibility section ──
         v.addSpacing(4)
-        v.addWidget(_section_header("Theme"))
-        v.addWidget(_field_label("Background Colour"))
+        v.addWidget(_section_header("Accessibility"))
 
-        theme_row = QWidget()
-        theme_row.setStyleSheet("background: transparent; border: none;")
-        th = QHBoxLayout(theme_row)
-        th.setContentsMargins(0, 0, 0, 0)
-        th.setSpacing(8)
-
-        themes = [
-            ("Navy",  "#06080f", "#0d1530", "navy"),
-            ("Slate", "#0f1117", "#1a2235", "slate"),
-            ("Black", "#000000", "#0a0a0a", "black"),
-        ]
-        self._theme_chips: list[tuple[ThemeChip, str, QLabel]] = []
-        for name, c1, c2, key in themes:
-            wrap = QWidget()
-            wrap.setStyleSheet("background: transparent; border: none;")
-            wv = QVBoxLayout(wrap)
-            wv.setContentsMargins(0, 0, 0, 0)
-            wv.setSpacing(4)
-            chip = ThemeChip(name, c1, c2)
-            chip.selected.connect(lambda k=key: self._select_theme(k))
-            wv.addWidget(chip)
-            lbl = QLabel(name)
-            lbl.setFont(font(9, 600))
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(
-                "color: rgba(255,255,255,0.28); background: transparent;"
-                " border: none; letter-spacing: 1px;"
-            )
-            wv.addWidget(lbl)
-            th.addWidget(wrap, 1)
-            self._theme_chips.append((chip, key, lbl))
-        v.addWidget(theme_row)
-
-        # Reduce Motion toggle
         self._motion_toggle = ToggleSwitch(False)
-        v.addWidget(self._toggle_row(
-            "Reduce Motion",
-            "Simpler transitions for accessibility or performance",
-            self._motion_toggle,
-        ))
+        v.addWidget(
+            self._toggle_row(
+                "Reduce Motion",
+                "Simpler transitions for accessibility or performance",
+                self._motion_toggle,
+            )
+        )
 
         v.addStretch()
         return page
 
-    def _select_position(self, key: str):
+    def _select_position(self, key: str) -> None:
         for chip, k in self._pos_chips:
             chip.set_active(k == key)
         self._current_position = key
-
-    def _select_theme(self, key: str):
-        for chip, k, lbl in self._theme_chips:
-            chip.set_active(k == key)
-        self._current_theme = key
 
     # ─────────────────────────────────────────────────────
     #  TAB 4 — ABOUT
     # ─────────────────────────────────────────────────────
 
     def _build_about_tab(self) -> QWidget:
+        t = theme()
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
         v = QVBoxLayout(page)
-        v.setContentsMargins(20, 24, 20, 20)
-        v.setSpacing(16)
+        v.setContentsMargins(20, 32, 20, 8)
+        v.setSpacing(14)
         v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        # App icon
+        # App icon — red rounded square with mic
         icon = QLabel("\U0001f399")
-        icon.setFixedSize(64, 64)
+        icon.setFixedSize(72, 72)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon.setStyleSheet(
             "font-size: 32px;"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            " stop:0 rgba(91,196,255,0.18), stop:1 rgba(91,196,255,0.06));"
-            "border: 1px solid rgba(91,196,255,0.20);"
-            "border-radius: 16px;"
+            f"background: {t.red.name()};"
+            f"border-radius: 18px;"
+            "color: white;"
         )
         v.addWidget(icon, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        name = QLabel("VoiceType")
-        name.setFont(font(18, 600))
-        name.setStyleSheet("color: rgba(255,255,255,0.93); background: transparent; border: none;")
+        name = QLabel("Scribr")
+        name.setFont(font_serif(24, 600))
+        name.setStyleSheet(
+            f"color: {t.text.name()}; background: transparent; border: none;"
+            " letter-spacing: -0.02em;"
+        )
         name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(name)
 
-        ver = QLabel("Version 1.0.0 · Built with Python + PyQt6")
-        ver.setFont(font(12, 400))
-        ver.setStyleSheet("color: rgba(255,255,255,0.28); background: transparent; border: none;")
+        ver = QLabel("Version 1.0.0 \u00b7 Python + PyQt6")
+        ver.setFont(font_serif(12, 400, italic=True))
+        ver.setStyleSheet(
+            f"color: {qcolor_to_rgba(t.text_light)};"
+            " background: transparent; border: none;"
+        )
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(ver)
 
         desc = QLabel(
-            "Hold Right ⌥ to record. Release to transcribe.\n"
-            "Text flows into any app — directly into focused\n"
-            "fields or to a floating notepad."
+            "Just tap, talk, and it\u2019s done.\n"
+            "Your voice, turned into text \u2014 ready\n"
+            "to read in seconds."
         )
-        desc.setFont(font(13, 400))
-        desc.setStyleSheet("color: rgba(255,255,255,0.55); background: transparent; border: none;")
+        desc.setFont(font_serif(14, 400, italic=True))
+        desc.setStyleSheet(
+            f"color: {qcolor_to_rgba(t.text_mid)};"
+            " background: transparent; border: none;"
+            " line-height: 1.7;"
+        )
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setWordWrap(True)
-        v.addWidget(desc)
+        desc.setMaximumWidth(320)
+        v.addWidget(desc, 0, Qt.AlignmentFlag.AlignHCenter)
 
         # Stats row
         stats_frame = QFrame()
         stats_frame.setStyleSheet(
             "QFrame {"
-            "  background: rgba(9,13,26,0.82);"
-            "  border: 1px solid rgba(255,255,255,0.07);"
+            f"  background: {qcolor_to_rgba(t.border)};"
+            f"  border: 1px solid {qcolor_to_rgba(t.border)};"
             f"  border-radius: {RADIUS_MD}px;"
             "}"
         )
@@ -784,22 +807,33 @@ class SettingsWindow(QWidget):
         sh.setContentsMargins(0, 0, 0, 0)
         sh.setSpacing(1)
 
-        for val, label in [("0:04", "AVG CLIP"), ("23", "THIS MONTH"), ("$0.09", "API COST")]:
+        stats = [
+            ("23", "THIS MONTH", True),
+            ("0:04", "AVG CLIP", False),
+            ("$0.09", "API COST", False),
+        ]
+        for val, label, accent in stats:
             cell = QWidget()
-            cell.setStyleSheet("background: transparent; border: none;")
+            cell.setStyleSheet(
+                f"background: {qcolor_to_rgba(t.surface_2)}; border: none;"
+            )
             cv = QVBoxLayout(cell)
-            cv.setContentsMargins(12, 12, 12, 12)
-            cv.setSpacing(2)
+            cv.setContentsMargins(12, 16, 12, 16)
+            cv.setSpacing(3)
             num = QLabel(val)
-            num.setFont(font(18, 600))
+            num.setFont(font_serif(26, 600))
             num.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            num.setStyleSheet("color: rgba(255,255,255,0.93); background: transparent; border: none;")
+            color = t.red.name() if accent else t.text.name()
+            num.setStyleSheet(
+                f"color: {color}; background: transparent; border: none;"
+                " letter-spacing: -0.03em;"
+            )
             cv.addWidget(num)
             lab = QLabel(label)
-            lab.setFont(font(9, 600))
+            lab.setFont(font_sans(9, 600))
             lab.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lab.setStyleSheet(
-                "color: rgba(255,255,255,0.28); background: transparent;"
+                f"color: {qcolor_to_rgba(t.text_light)}; background: transparent;"
                 " border: none; letter-spacing: 1.5px;"
             )
             cv.addWidget(lab)
@@ -815,21 +849,24 @@ class SettingsWindow(QWidget):
         lh.setSpacing(8)
         lh.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        for label in ["📄  Docs", "🐛  Report Bug", "⭐  GitHub"]:
+        for label in [
+            "\U0001f4c4  Docs",
+            "\U0001f41b  Report Bug",
+            "\u2b50  GitHub",
+        ]:
             btn = QPushButton(label)
-            btn.setFont(font(11, 500))
+            btn.setFont(font_sans(12, 500))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 "QPushButton {"
-                "  padding: 6px 14px;"
-                "  border-radius: 99px;"
-                "  background: rgba(255,255,255,0.05);"
-                "  border: 1px solid rgba(255,255,255,0.08);"
-                "  color: rgba(255,255,255,0.55);"
+                "  padding: 7px 16px; border-radius: 999px;"
+                f"  background: {qcolor_to_rgba(t.surface_2)};"
+                f"  border: 1px solid {qcolor_to_rgba(t.border)};"
+                f"  color: {qcolor_to_rgba(t.text_mid)};"
                 "}"
                 "QPushButton:hover {"
-                "  background: rgba(255,255,255,0.10);"
-                "  color: rgba(255,255,255,0.93);"
+                f"  background: {qcolor_to_rgba(t.surface_3)};"
+                f"  color: {t.text.name()};"
                 "}"
             )
             lh.addWidget(btn)
@@ -843,33 +880,37 @@ class SettingsWindow(QWidget):
     # ─────────────────────────────────────────────────────
 
     def _build_footer(self) -> QWidget:
+        t = theme()
         bar = QWidget()
-        bar.setFixedHeight(52)
+        bar.setFixedHeight(56)
         bar.setStyleSheet(
-            "background: rgba(255,255,255,0.01);"
-            "border-top: 1px solid rgba(255,255,255,0.07);"
+            f"background: {qcolor_to_rgba(t.surface_2)};"
+            f"border-top: 1px solid {qcolor_to_rgba(t.border)};"
         )
         h = QHBoxLayout(bar)
         h.setContentsMargins(20, 0, 20, 0)
 
-        ver = QLabel("VoiceType v1.0 · Right ⌥ to record")
-        ver.setFont(font(11, 400))
-        ver.setStyleSheet("color: rgba(255,255,255,0.28); background: transparent; border: none;")
+        ver = QLabel("Scribr v1.0 \u00b7 Just tap, talk, and it\u2019s done.")
+        ver.setFont(font_serif(11, 400, italic=True))
+        ver.setStyleSheet(
+            f"color: {qcolor_to_rgba(t.text_light)};"
+            " background: transparent; border: none;"
+        )
         h.addWidget(ver)
         h.addStretch()
 
         cancel = QPushButton("Cancel")
-        cancel.setFont(font(12, 500))
-        cancel.setStyleSheet(BTN_GHOST_SS)
+        cancel.setFont(font_sans(13, 500))
+        cancel.setStyleSheet(_btn_ghost_ss())
         cancel.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel.clicked.connect(self.close)
         h.addWidget(cancel)
 
         h.addSpacing(8)
 
-        save = QPushButton("Save Settings")
-        save.setFont(font(12, 600))
-        save.setStyleSheet(BTN_SAVE_SS)
+        save = QPushButton("Save")
+        save.setFont(font_sans(13, 600))
+        save.setStyleSheet(_btn_save_ss())
         save.setCursor(Qt.CursorShape.PointingHandCursor)
         save.clicked.connect(self._save)
         h.addWidget(save)
@@ -880,12 +921,17 @@ class SettingsWindow(QWidget):
     #  TOGGLE ROW HELPER
     # ─────────────────────────────────────────────────────
 
-    def _toggle_row(self, title: str, hint: str, toggle: ToggleSwitch) -> QWidget:
+    def _toggle_row(self, title: str, hint_text: str, toggle: ToggleSwitch) -> QWidget:
+        t = theme()
         row = QWidget()
-        row.setStyleSheet("background: transparent; border: none;")
+        row.setStyleSheet(
+            "background: transparent; border: none;"
+            f" border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
+        )
+        row.setMinimumHeight(52)
         h = QHBoxLayout(row)
-        h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(16)
+        h.setContentsMargins(0, 13, 0, 13)
+        h.setSpacing(14)
 
         info = QWidget()
         info.setStyleSheet("background: transparent; border: none;")
@@ -893,7 +939,7 @@ class SettingsWindow(QWidget):
         iv.setContentsMargins(0, 0, 0, 0)
         iv.setSpacing(2)
         iv.addWidget(_field_label(title))
-        iv.addWidget(_hint(hint))
+        iv.addWidget(_hint(hint_text))
         h.addWidget(info, 1)
         h.addWidget(toggle)
         return row
@@ -902,7 +948,7 @@ class SettingsWindow(QWidget):
     #  LOAD / SAVE
     # ─────────────────────────────────────────────────────
 
-    def _load_values(self):
+    def _load_values(self) -> None:
         s = self._settings
 
         self._openai_input.setText(s.get("openai_api_key", ""))
@@ -913,7 +959,8 @@ class SettingsWindow(QWidget):
 
         # Model size
         sizes = ["tiny", "base", "small", "medium"]
-        idx = sizes.index(s.get("local_model_size", "base")) if s.get("local_model_size") in sizes else 1
+        model = s.get("local_model_size", "base")
+        idx = sizes.index(model) if model in sizes else 1
         self._model_combo.setCurrentIndex(idx)
 
         # Language
@@ -925,7 +972,9 @@ class SettingsWindow(QWidget):
 
         # Toggles
         self._ai_cleanup_toggle.set_checked(s.get("ai_cleanup", True), animate=False)
-        self._confidence_toggle.set_checked(s.get("confidence_highlights", True), animate=False)
+        self._confidence_toggle.set_checked(
+            s.get("confidence_highlights", True), animate=False
+        )
         self._overlay_toggle.set_checked(s.get("show_overlay", True), animate=False)
         self._motion_toggle.set_checked(s.get("reduce_motion", False), animate=False)
 
@@ -934,22 +983,22 @@ class SettingsWindow(QWidget):
         for chip, k in self._pos_chips:
             chip.set_active(k == self._current_position)
 
-        # Theme
-        self._current_theme = s.get("theme", "navy")
-        for chip, k, lbl in self._theme_chips:
-            chip.set_active(k == self._current_theme)
-
-    def _save(self):
+    def _save(self) -> None:
         key = self._openai_input.text().strip()
 
-        # Validate OpenAI key
+        # Validate OpenAI key (friendly error message per brand)
         if key and not key.startswith("sk-"):
-            self._toast.show_error("OpenAI key must start with sk-")
+            self._toast.show_error(
+                "That doesn\u2019t look right \u2014 keys start with sk-"
+            )
             return
 
         s = self._settings
         s.set("openai_api_key", key)
-        s.set("transcription_mode", "api" if self._mode_seg.selected_index() == 0 else "local")
+        s.set(
+            "transcription_mode",
+            "api" if self._mode_seg.selected_index() == 0 else "local",
+        )
 
         sizes = ["tiny", "base", "small", "medium"]
         s.set("local_model_size", sizes[self._model_combo.currentIndex()])
@@ -962,23 +1011,28 @@ class SettingsWindow(QWidget):
         s.set("show_overlay", self._overlay_toggle.is_checked())
         s.set("reduce_motion", self._motion_toggle.is_checked())
         s.set("overlay_position", self._current_position)
-        s.set("theme", self._current_theme)
 
         s.save()
-        self._toast.show_success("Settings saved")
+        self._toast.show_success("\u2713 Done")
         self.settings_saved.emit()
 
     # ─────────────────────────────────────────────────────
     #  WINDOW DRAGGING
     # ─────────────────────────────────────────────────────
 
-    def mousePressEvent(self, event):
-        if event.position().y() < 48:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+    def mousePressEvent(self, event: object) -> None:  # type: ignore[override]
+        from PyQt6.QtGui import QMouseEvent
 
-    def mouseMoveEvent(self, event):
-        if self._drag_pos is not None:
+        if isinstance(event, QMouseEvent) and event.position().y() < 48:
+            self._drag_pos = (
+                event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
+
+    def mouseMoveEvent(self, event: object) -> None:  # type: ignore[override]
+        from PyQt6.QtGui import QMouseEvent
+
+        if self._drag_pos is not None and isinstance(event, QMouseEvent):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, event: object) -> None:  # type: ignore[override]
         self._drag_pos = None

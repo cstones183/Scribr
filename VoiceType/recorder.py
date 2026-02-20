@@ -8,7 +8,7 @@ import math
 import threading
 import wave
 from collections import deque
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -16,7 +16,7 @@ import sounddevice as sd
 SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
-BLOCK_SIZE = 512          # ~32ms per block at 16kHz → ~31 callbacks/sec
+BLOCK_SIZE = 512  # ~32ms per block at 16kHz → ~31 callbacks/sec
 MAX_RECORDING_SECONDS = 300  # 5 minutes auto-stop
 
 
@@ -30,16 +30,16 @@ class Recorder:
         wav_bytes = rec.stop()
     """
 
-    def __init__(self, on_device_error: Optional[Callable[[str], None]] = None):
+    def __init__(self, on_device_error: Callable[[str], None] | None = None):
         self._on_device_error = on_device_error
-        self._stream: Optional[sd.InputStream] = None
+        self._stream: sd.InputStream | None = None
         self._frames: list[bytes] = []
         self._is_recording = False
         self._rms_history: deque = deque(maxlen=3)
         self._start_time: float = 0.0
-        self._auto_stop_timer: Optional[threading.Timer] = None
-        self._on_rms_update: Optional[Callable[[float], None]] = None
-        self._auto_stopped_wav: Optional[bytes] = None
+        self._auto_stop_timer: threading.Timer | None = None
+        self._on_rms_update: Callable[[float], None] | None = None
+        self._auto_stopped_wav: bytes | None = None
 
     def start(self, on_rms_update: Callable[[float], None]):
         """Begin recording from the default input device.
@@ -69,15 +69,11 @@ class Recorder:
             self._is_recording = True
         except (sd.PortAudioError, OSError) as e:
             if self._on_device_error:
-                self._on_device_error(
-                    f"Microphone not available: {e}"
-                )
+                self._on_device_error(f"Microphone not available: {e}")
             return
 
         # Auto-stop safety timer
-        self._auto_stop_timer = threading.Timer(
-            MAX_RECORDING_SECONDS, self._auto_stop
-        )
+        self._auto_stop_timer = threading.Timer(MAX_RECORDING_SECONDS, self._auto_stop)
         self._auto_stop_timer.daemon = True
         self._auto_stop_timer.start()
 
@@ -120,8 +116,7 @@ class Recorder:
             self._auto_stop_timer.cancel()
             self._auto_stop_timer = None
 
-    def _audio_callback(self, indata: np.ndarray, frames: int,
-                        time_info, status):
+    def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status):
         """Called by sounddevice on the audio thread for each block.
 
         Appends raw bytes, computes smoothed RMS, and fires the callback.
@@ -131,7 +126,7 @@ class Recorder:
 
         # Compute RMS normalised to 0.0–1.0
         samples = indata[:, 0].astype(np.float64)
-        rms = math.sqrt(np.mean(samples ** 2)) / 32768.0
+        rms = math.sqrt(np.mean(samples**2)) / 32768.0
         rms = min(rms, 1.0)
 
         # Smooth with rolling average
