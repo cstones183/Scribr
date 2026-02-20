@@ -673,6 +673,14 @@ class OverlayWindow(QWidget):
         self._connector_h = 0.0
         self._animations: list = []  # keep refs alive
 
+        # Connector gradient pulse state
+        self._streaming = False
+        self._pulse_phase = 0.0
+        self._pulse_opacity = 0.0
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(16)  # ~60fps
+        self._pulse_timer.timeout.connect(self._tick_pulse)
+
         self._setup_window_flags()
         self._build_widgets()
         self._connect_signals()
@@ -859,13 +867,11 @@ class OverlayWindow(QWidget):
 
         self._main_layout.addWidget(self._pill, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        # ── CONNECTOR + PARTICLE STREAM ──
+        # ── CONNECTOR ──
         self._connector = QWidget(self)
-        self._connector.setFixedSize(1, 0)
+        self._connector.setFixedSize(2, 0)
         self._connector.setStyleSheet("background: transparent;")
         self._main_layout.addWidget(self._connector, 0, Qt.AlignmentFlag.AlignHCenter)
-
-        self._particle_stream = ParticleStreamWidget(self)
 
         # ── NOTEPAD ──
         self._notepad = NotepadWidget(self)
