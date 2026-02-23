@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="22" height="22">
+  <!--
+    Scribr — Menu Bar Icon (Recording)
+    Format: SVG @ 22×22pt (renders at 44×44px on Retina)
+    Usage:  Swap in programmatically when recording starts.
+            Do NOT use as template image — colour must stay coral.
+    State:  Recording — warm coral #D94F3D mic, transparent background
+  -->
+  <defs>
+    <mask id="mic-cutout-rec">
+      <rect width="22" height="22" fill="white"/>
+      <!-- Mic body -->
+      <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/>
+      <!-- Mic arc -->
+      <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <!-- Stand -->
+      <line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- Base -->
+      <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+    </mask>
+  </defs>
+
+  <!-- Warm coral fill — stays coral in both light and dark mode -->
+  <rect width="22" height="22" rx="5" fill="#D94F3D" mask="url(#mic-cutout-rec)"/>
+</svg>

@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from settings import LANGUAGES, SettingsManager
+from stats import StatsManager
 from style import (
     RADIUS_CARD,
     RADIUS_MD,
@@ -366,9 +367,10 @@ class SettingsWindow(QWidget):
 
     settings_saved = pyqtSignal()
 
-    def __init__(self, settings: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: SettingsManager, stats: StatsManager, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
+        self._stats = stats
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
@@ -809,21 +811,25 @@ class SettingsWindow(QWidget):
         v.addWidget(_section_header("Shortcut"))
 
         shortcut_card = _CardFrame()
-        key_cap = QLabel("Right \u2325")
-        key_cap.setFont(font_sans(12, 600))
-        key_cap.setStyleSheet(
-            f"background: {qcolor_to_rgba(t.surface_2)};"
-            f"border: 1px solid {qcolor_to_rgba(t.border_2)};"
-            f"border-bottom: 2px solid {qcolor_to_rgba(t.border_2)};"
-            f"border-radius: 7px;"
-            f"color: {t.text.name()};"
-            "padding: 4px 12px;"
-        )
+        self._hotkey_combo = QComboBox()
+        self._hotkey_combo.setStyleSheet(_select_ss())
+        self._hotkey_combo.setMinimumHeight(38)
+        self._hotkey_combo.setMinimumWidth(140)
+        _hotkey_choices = [
+            ("Right \u2325 Option", "alt_r"),
+            ("Right \u2318 Command", "cmd_r"),
+            ("Right \u2303 Control", "ctrl_r"),
+            ("F1", "f1"),
+            ("F2", "f2"),
+            ("F3", "f3"),
+        ]
+        for display, code in _hotkey_choices:
+            self._hotkey_combo.addItem(display, code)
         shortcut_card.add_row(
             _card_row(
                 "Record Shortcut",
                 "Hold to record \u00b7 release to transcribe",
-                key_cap,
+                self._hotkey_combo,
             )
         )
         v.addWidget(shortcut_card)
@@ -867,7 +873,7 @@ class SettingsWindow(QWidget):
         )
 
         # AI Format Style segmented control
-        self._ai_style_seg = SegmentedControl(["Structured", "Condensed", "Bullets"])
+        self._ai_style_seg = SegmentedControl(["Structured", "Condensed", "Bullets", "Prompt"])
         self._ai_style_row = _card_row(
             "Format Style",
             "How to structure the formatted output",
@@ -882,6 +888,16 @@ class SettingsWindow(QWidget):
                 "Show Original",
                 "Display raw transcript below the formatted version",
                 self._ai_show_original_toggle,
+            )
+        )
+
+        # UK English toggle
+        self._uk_english_toggle = ToggleSwitch(False)
+        ai_card.add_row(
+            _card_row(
+                "UK English",
+                "Enforce UK English spelling and grammar",
+                self._uk_english_toggle,
             )
         )
 
@@ -1122,10 +1138,11 @@ class SettingsWindow(QWidget):
         sh.setContentsMargins(0, 0, 0, 0)
         sh.setSpacing(1)
 
+        avg_s = self._stats.duration_s / self._stats.clips if self._stats.clips > 0 else 0.0
         stats = [
-            ("23", "THIS MONTH", True),
-            ("0:04", "AVG CLIP", False),
-            ("$0.09", "API COST", False),
+            (str(self._stats.clips), "THIS MONTH", True),
+            (f"{int(avg_s // 60)}:{int(avg_s % 60):02d}", "AVG CLIP", False),
+            (f"${self._stats.cost:.2f}", "API COST", False),
         ]
         for val, label, accent in stats:
             cell = QWidget()
@@ -1303,12 +1320,20 @@ class SettingsWindow(QWidget):
         self._ai_default_toggle.set_checked(ai_default, animate=False)
         self._on_ai_default_toggled(ai_default)
 
-        ai_styles = ["structured", "condensed", "bullets"]
+        ai_styles = ["structured", "condensed", "bullets", "prompt"]
         ai_style_str = s.get("ai_format_style", "structured")
         idx = ai_styles.index(ai_style_str) if ai_style_str in ai_styles else 0
         self._ai_style_seg.set_selected(idx)
 
         self._ai_show_original_toggle.set_checked(s.get("ai_show_original", False), animate=False)
+        self._uk_english_toggle.set_checked(s.get("use_uk_english", False), animate=False)
+
+        # Hotkey
+        hotkey = s.get("hotkey", "alt_r")
+        for i in range(self._hotkey_combo.count()):
+            if self._hotkey_combo.itemData(i) == hotkey:
+                self._hotkey_combo.setCurrentIndex(i)
+                break
 
         # Position
         self._current_position = s.get("overlay_position", "bottom_centre")
@@ -1352,12 +1377,14 @@ class SettingsWindow(QWidget):
         s.set("confidence_highlights", self._confidence_toggle.is_checked())
         s.set("show_overlay", self._overlay_toggle.is_checked())
         s.set("reduce_motion", self._motion_toggle.is_checked())
+        s.set("hotkey", self._hotkey_combo.currentData() or "alt_r")
         s.set("overlay_position", self._current_position)
 
         s.set("ai_mode_default", self._ai_default_toggle.is_checked())
-        ai_styles = ["structured", "condensed", "bullets"]
+        ai_styles = ["structured", "condensed", "bullets", "prompt"]
         s.set("ai_format_style", ai_styles[self._ai_style_seg.selected_index()])
         s.set("ai_show_original", self._ai_show_original_toggle.is_checked())
+        s.set("use_uk_english", self._uk_english_toggle.is_checked())
 
         s.save()
         self.settings_saved.emit()

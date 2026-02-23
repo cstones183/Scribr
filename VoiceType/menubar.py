@@ -12,57 +12,11 @@ from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from style import qcolor_to_rgba, theme
 
 
-def _mic_icon(color: QColor, size: int = 22) -> QIcon:
-    """Render a rounded square with mic knockout for the menubar."""
-    pix = QPixmap(QSize(size, size))
-    pix.fill(QColor(0, 0, 0, 0))
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-    # Rounded square background
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(color)
-    r = size * 0.22
-    p.drawRoundedRect(0, 0, size, size, r, r)
-
-    # Mic knockout via composition mode
-    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationOut)
-    p.setBrush(QColor(255, 255, 255))
-    pen = QPen(QColor(255, 255, 255))
-
-    s = size  # alias for readability
-    # Mic body — rounded rect
-    mic_w = s * 0.25
-    mic_h = s * 0.46
-    mic_x = (s - mic_w) / 2
-    mic_y = s * 0.09
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(QRectF(mic_x, mic_y, mic_w, mic_h), mic_w / 2, mic_w / 2)
-
-    # Arc
-    pen.setWidthF(s * 0.09)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    p.setPen(pen)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    arc_path = QPainterPath()
-    arc_x = s * 0.23
-    arc_y = s * 0.27
-    arc_w = s * 0.54
-    arc_h = s * 0.40
-    arc_path.arcMoveTo(QRectF(arc_x, arc_y, arc_w, arc_h), 180)
-    arc_path.arcTo(QRectF(arc_x, arc_y, arc_w, arc_h), 180, -180)
-    p.drawPath(arc_path)
-
-    # Stem
-    cx = s / 2
-    p.drawLine(int(cx), int(s * 0.67), int(cx), int(s * 0.82))
-
-    # Base
-    base_w = s * 0.25
-    p.drawLine(int(cx - base_w / 2), int(s * 0.82), int(cx + base_w / 2), int(s * 0.82))
-
-    p.end()
-    return QIcon(pix)
+def _load_icon(path: str, is_template: bool = False) -> QIcon:
+    """Load a PNG icon for the menubar, optionally as a template."""
+    icon = QIcon(path)
+    icon.setIsMask(is_template)
+    return icon
 
 
 class ScribrMenubar(QObject):
@@ -88,9 +42,26 @@ class ScribrMenubar(QObject):
         self._recording = False
 
         # Pre-render icons
-        t = theme()
-        self._icon_idle = _mic_icon(t.text_light)
-        self._icon_rec = _mic_icon(t.red)
+        self._icon_idle = _load_icon("assets/menubar_idle.png", is_template=True)
+        # Using QIcon to dynamically read retina scaling, then freezing the pixmap size
+        self._icon_rec = QIcon("assets/menubar_recording.png")
+        self._pix_rec = self._icon_rec.pixmap(22, 22)
+
+        # Animation states
+        from enum import Enum
+        class AnimState(Enum):
+            IDLE = 0
+            FADE_IN = 1
+            PULSE = 2
+            STATIC_BUSY = 3
+
+        self._anim_state = AnimState.IDLE
+        self._anim_phase = 0.0
+        
+        from PyQt6.QtCore import QTimer
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(16)
+        self._anim_timer.timeout.connect(self._tick_anim)
 
         # ── System tray ──────────────────────────────────
         self._tray = QSystemTrayIcon(self._icon_idle)
@@ -102,6 +73,44 @@ class ScribrMenubar(QObject):
         self._history_menu: QMenu | None = None
         self._build_menu()
         self._tray.setContextMenu(self._menu)
+
+    def _tick_anim(self) -> None:
+        """60fps animation loop for the menubar icon."""
+        if self._anim_state == 0:  # IDLE
+            return
+
+        dt = 16.0 / 1000.0
+        opacity = 1.0
+
+        if self._anim_state.name == "FADE_IN":
+            self._anim_phase += dt / 0.2  # 0.2s duration
+            if self._anim_phase >= 1.0:
+                self._anim_phase = 0.0
+                self._anim_state = self._anim_state.PULSE
+            opacity = min(1.0, self._anim_phase)
+        
+        elif self._anim_state.name == "PULSE":
+            # Pulse opacity 1.0 <-> 0.5 over 1.2s
+            import math
+            self._anim_phase += dt / 1.2
+            if self._anim_phase >= 1.0:
+                self._anim_phase -= 1.0
+            # Sine wave: 0.5 to 1.0
+            sine = (math.sin(self._anim_phase * math.pi * 2) + 1.0) / 2.0
+            opacity = 0.5 + (sine * 0.5)
+
+        elif self._anim_state.name == "STATIC_BUSY":
+            opacity = 1.0
+
+        # Render current frame
+        pix = self._pix_rec.copy()
+        pix.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pix)
+        p.setOpacity(opacity)
+        p.drawPixmap(0, 0, self._pix_rec)
+        p.end()
+
+        self._tray.setIcon(QIcon(pix))
 
     def show(self) -> None:
         self._tray.show()
@@ -214,7 +223,10 @@ class ScribrMenubar(QObject):
     def set_recording(self, recording: bool) -> None:
         self._recording = recording
         if recording:
-            self._tray.setIcon(self._icon_rec)
+            self._anim_state = self._anim_state.FADE_IN
+            self._anim_phase = 0.0
+            self._anim_timer.start()
+
             self._tray.setToolTip("Scribr \u2014 Recording")
             if self._status_action:
                 self._status_action.setText("Scribr \u2014 Recording")
@@ -223,7 +235,10 @@ class ScribrMenubar(QObject):
                     "\u23f9  Stop Recording          Right \u2325"
                 )
         else:
+            self._anim_timer.stop()
+            self._anim_state = self._anim_state.IDLE
             self._tray.setIcon(self._icon_idle)
+            
             self._tray.setToolTip("Scribr \u2014 Ready")
             if self._status_action:
                 self._status_action.setText("Scribr \u2014 Ready")
@@ -233,6 +248,7 @@ class ScribrMenubar(QObject):
                 )
 
     def set_transcribing(self) -> None:
+        self._anim_state = self._anim_state.STATIC_BUSY
         self._tray.setIcon(self._icon_rec)
         self._tray.setToolTip("Scribr \u2014 Transcribing...")
         if self._status_action:
@@ -242,6 +258,8 @@ class ScribrMenubar(QObject):
 
     def set_idle(self) -> None:
         self._recording = False
+        self._anim_timer.stop()
+        self._anim_state = self._anim_state.IDLE
         self._tray.setIcon(self._icon_idle)
         self._tray.setToolTip("Scribr \u2014 Ready")
         if self._status_action:

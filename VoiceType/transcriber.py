@@ -42,6 +42,7 @@ class GroqTranscriber:
         wav_bytes: bytes,
         language: str | None = None,
         model: str = "whisper-large-v3-turbo",
+        prompt: str = "",
     ) -> str:
         """Send WAV bytes to Groq Whisper API, return transcribed text.
 
@@ -49,6 +50,7 @@ class GroqTranscriber:
             wav_bytes: Raw WAV file bytes (16kHz mono 16-bit PCM).
             language: ISO 639-1 language code, or None for auto-detect.
             model: Whisper model to use on Groq (turbo is faster and cheaper).
+            prompt: Initial prompt to bias transcription style/spelling.
 
         Returns:
             Transcribed text string.
@@ -65,6 +67,8 @@ class GroqTranscriber:
         }
         if language and language != "auto":
             data["language"] = language
+        if prompt:
+            data["prompt"] = prompt
 
         files = {
             "file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav"),
@@ -116,6 +120,7 @@ class OpenAITranscriber:
         wav_bytes: bytes,
         language: str | None = None,
         model: str = "whisper-1",
+        prompt: str = "",
     ) -> str:
         """Send WAV bytes to OpenAI Whisper API, return transcribed text."""
         if not wav_bytes or len(wav_bytes) < 100:
@@ -127,6 +132,8 @@ class OpenAITranscriber:
         }
         if language and language != "auto":
             data["language"] = language
+        if prompt:
+            data["prompt"] = prompt
 
         files = {
             "file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav"),
@@ -186,6 +193,7 @@ class LocalTranscriber:
         wav_bytes: bytes,
         language: str | None = None,
         model: str = "",
+        prompt: str = "",
     ) -> str:
         """Run local Whisper inference on WAV bytes.
 
@@ -207,6 +215,8 @@ class LocalTranscriber:
             options: dict = {}
             if language and language != "auto":
                 options["language"] = language
+            if prompt:
+                options["initial_prompt"] = prompt
 
             result = self._model.transcribe(tmp_path, **options)
             return result.get("text", "").strip()

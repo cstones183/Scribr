@@ -47,6 +47,15 @@ LLM_FORMAT_PROMPT_BULLETS = (
     "Convert this spoken transcript into a bulleted list of key points. Remove filler words and false starts. Each bullet should be one clear, actionable or informational item. Order by importance. Output only the bullet points, no preamble."
 )
 
+LLM_FORMAT_PROMPT_PROMPT_MODE = (
+    "You are an expert prompt engineer. The user has spoken a transcript of their thoughts. "
+    "Your job is to convert this raw transcript into a highly structured, optimized prompt "
+    "that the user can copy and paste into another AI model (like ChatGPT or Claude) to get the best results. "
+    "Expand on the implicit intent, organize the requirements into bullet points if necessary, "
+    "and ensure the resulting prompt is clear and explicit. "
+    "Return ONLY the formulated prompt, with no extra conversational filler."
+)
+
 
 class CorrectionError(Exception):
     """Raised when text correction fails."""
@@ -66,7 +75,7 @@ class Corrector:
         self._session.headers["Authorization"] = f"Bearer {api_key}"
         self._session.headers["Content-Type"] = "application/json"
 
-    def clean_text(self, raw_text: str) -> str:
+    def clean_text(self, raw_text: str, use_uk_english: bool = False) -> str:
         """Send raw transcription to GPT-4o-mini for cleanup.
 
         Returns cleaned text, or raises CorrectionError on failure.
@@ -74,10 +83,14 @@ class Corrector:
         if not raw_text.strip():
             return raw_text
 
+        sys_prompt = SYSTEM_PROMPT
+        if use_uk_english:
+            sys_prompt += "\n\nCRITICAL RULE: You must exclusively use UK English spelling (e.g., colour, organise), vocabulary, and grammar conventions."
+
         payload = {
             "model": "gpt-4o-mini",
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": sys_prompt},
                 {"role": "user", "content": raw_text},
             ],
             "temperature": 0.3,
@@ -104,7 +117,7 @@ class Corrector:
         except (json.JSONDecodeError, KeyError, IndexError) as e:
             raise CorrectionError(f"Invalid API response: {e}") from e
 
-    def format_for_llm(self, raw_text: str, style: str = "structured") -> str:
+    def format_for_llm(self, raw_text: str, style: str = "structured", use_uk_english: bool = False) -> str:
         """Restructure spoken transcript into clean, labelled context for an LLM."""
         if not raw_text.strip():
             return raw_text
@@ -117,8 +130,13 @@ class Corrector:
             sys_prompt = LLM_FORMAT_PROMPT_CONDENSED
         elif style == "bullets":
             sys_prompt = LLM_FORMAT_PROMPT_BULLETS
+        elif style == "prompt":
+            sys_prompt = LLM_FORMAT_PROMPT_PROMPT_MODE
         else:
             sys_prompt = LLM_FORMAT_PROMPT_STRUCTURED
+
+        if use_uk_english:
+            sys_prompt += "\n\nCRITICAL RULE: You must exclusively use UK English spelling (e.g., colour, organise), vocabulary, and grammar conventions."
 
         payload = {
             "model": "gpt-4o-mini",

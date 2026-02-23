@@ -38,6 +38,7 @@ class AppSettings:
     ai_mode_default: bool = False
     ai_format_style: str = "structured"  # "structured" | "condensed" | "bullets"
     ai_show_original: bool = False
+    use_uk_english: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

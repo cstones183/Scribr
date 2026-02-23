@@ -537,6 +537,8 @@ class AIShimmerSkeleton(QWidget):
         self._progress = 0.0
         self._timer.start()
         if not should_reduce_motion():
+            self._anim.setStartValue(0.0)
+            self._anim.setEndValue(1.0)
             self._anim.start()
         else:
             self._progress = 1.0
@@ -571,37 +573,52 @@ class AIShimmerSkeleton(QWidget):
         if should_reduce_motion():
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(t.ai_shimmer)
-            c_y = max(0.0, (h - 40) / 2)
-            p.drawRoundedRect(16, int(c_y), int(w * 0.7), 12, 6, 6)
-            p.drawRoundedRect(16, int(c_y + 24), int(w * 0.4), 12, 6, 6)
+            c_y = max(0.0, (h - 60) / 2)
+            p.drawRoundedRect(16, int(c_y), int(w * 0.85), 11, 5, 5)
+            p.drawRoundedRect(16, int(c_y + 22), int(w * 0.65), 11, 5, 5)
+            p.drawRoundedRect(16, int(c_y + 44), int(w * 0.75), 11, 5, 5)
             p.end()
             return
 
-        grad = QLinearGradient(0, 0, w, 0)
-        x_offset = self._phase * w - (w / 2)
-        grad.setStart(x_offset, 0)
-        grad.setFinalStop(x_offset + w, 0)
-        base = t.ai_shimmer
-        highlight = QColor(base.red(), base.green(), base.blue(), int(base.alpha() * 1.5))
+        # Double width gradient sweeping across
+        grad_w = w * 2.0
+        # Phase goes 0.0 to 2.0, so phase / 2.0 goes 0.0 to 1.0
+        pct = self._phase / 2.0
+        x_offset = pct * (w + grad_w) - grad_w
+        
+        grad = QLinearGradient(x_offset, 0, x_offset + grad_w, 0)
+        
+        base = t.surface_2
+        highlight = t.ai_shimmer
+        hl = QColor(highlight.red(), highlight.green(), highlight.blue(), int(min(255, highlight.alpha() * 1.8)))
+        
         grad.setColorAt(0.0, base)
-        grad.setColorAt(0.5, highlight)
+        grad.setColorAt(0.35, base)
+        grad.setColorAt(0.5, hl)
+        grad.setColorAt(0.65, base)
         grad.setColorAt(1.0, base)
 
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(grad)
 
-        c_y = 20
+        c_y = 18
         alpha1 = min(1.0, max(0.0, self._progress * 2))
         if alpha1 > 0:
             p.setOpacity(alpha1)
             y1 = c_y + (1.0 - alpha1) * 10
-            p.drawRoundedRect(16, int(y1), int(w * 0.8), 12, 6, 6)
+            p.drawRoundedRect(16, int(y1), int(w * 0.85), 11, 5, 5)
 
-        alpha2 = min(1.0, max(0.0, (self._progress - 0.2) * 2))
+        alpha2 = min(1.0, max(0.0, (self._progress - 0.15) * 2))
         if alpha2 > 0:
             p.setOpacity(alpha2)
-            y2 = c_y + 24 + (1.0 - alpha2) * 10
-            p.drawRoundedRect(16, int(y2), int(w * 0.5), 12, 6, 6)
+            y2 = c_y + 22 + (1.0 - alpha2) * 10
+            p.drawRoundedRect(16, int(y2), int(w * 0.65), 11, 5, 5)
+
+        alpha3 = min(1.0, max(0.0, (self._progress - 0.3) * 2))
+        if alpha3 > 0:
+            p.setOpacity(alpha3)
+            y3 = c_y + 44 + (1.0 - alpha3) * 10
+            p.drawRoundedRect(16, int(y3), int(w * 0.75), 11, 5, 5)
 
         p.end()
 
@@ -674,6 +691,7 @@ class NotepadWidget(QWidget):
         base_style = (
             "  background: transparent; border: none;"
             f"  selection-background-color: {sel_rgba};"
+            "  text-indent: 0px;"
             "}"
             "QScrollBar:vertical { background: transparent; width: 4px; }"
             f"QScrollBar::handle:vertical {{ background: {scroll_handle}; border-radius: 2px; }}"
@@ -760,6 +778,7 @@ class NotepadWidget(QWidget):
             f"QPushButton:hover {{ background-color: {border_rgba}; color: {text_rgba}; }}"
         )
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         close_btn.clicked.connect(self.closeClicked.emit)
         h_layout.addWidget(close_btn)
         layout.addWidget(header)
@@ -777,25 +796,52 @@ class NotepadWidget(QWidget):
         b_layout.setContentsMargins(0, 0, 0, 0)
         b_layout.setSpacing(0)
 
+        # Raw transcript text (on top — always visible)
         self._text_edit = QTextEdit()
         self._text_edit.setFont(font_serif(15, 400, italic=True))
-        self._text_edit.setMinimumHeight(80)
-        self._text_edit.setMaximumHeight(200)
         self._text_edit.setReadOnly(True)
+        self._text_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         b_layout.addWidget(self._text_edit)
+
+        # ─── AI VERSION ─── divider (visible in show_original mode)
+        self._ai_divider = QWidget()
+        self._ai_divider.setFixedHeight(17)
+        div_h = QHBoxLayout(self._ai_divider)
+        div_h.setContentsMargins(16, 0, 16, 0)
+        div_h.setSpacing(8)
+        _div_line_l = QFrame()
+        _div_line_l.setFrameShape(QFrame.Shape.HLine)
+        _div_line_l.setFixedHeight(1)
+        _div_line_l.setStyleSheet(f"background: {border_rgba}; border: none;")
+        div_h.addWidget(_div_line_l)
+        _div_label = QLabel("AI VERSION")
+        _div_label.setFont(font_sans(8, 600))
+        _div_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _div_label.setStyleSheet(
+            f"color: {text_light_rgba}; border: none;"
+            " letter-spacing: 0.05em; background: transparent;"
+        )
+        div_h.addWidget(_div_label)
+        _div_line_r = QFrame()
+        _div_line_r.setFrameShape(QFrame.Shape.HLine)
+        _div_line_r.setFixedHeight(1)
+        _div_line_r.setStyleSheet(f"background: {border_rgba}; border: none;")
+        div_h.addWidget(_div_line_r)
+        self._ai_divider.hide()
+        b_layout.addWidget(self._ai_divider)
+
+        # AI formatted text (below divider)
+        self._ai_text_edit = QTextEdit()
+        self._ai_text_edit.setFont(font_sans(14, 400))
+        self._ai_text_edit.setReadOnly(True)
+        self._ai_text_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ai_text_edit.hide()
+        b_layout.addWidget(self._ai_text_edit)
 
         self._ai_skeleton = AIShimmerSkeleton()
         self._ai_skeleton.hide()
         b_layout.addWidget(self._ai_skeleton)
 
-        self._ai_text_edit = QTextEdit()
-        self._ai_text_edit.setFont(font_sans(14, 400))
-        self._ai_text_edit.setMinimumHeight(80)
-        self._ai_text_edit.setMaximumHeight(200)
-        self._ai_text_edit.setReadOnly(True)
-        self._ai_text_edit.hide()
-        b_layout.addWidget(self._ai_text_edit)
-        
         # apply initial styles
         self._set_text_opacity(self._text_opacity)
 
@@ -840,7 +886,7 @@ class NotepadWidget(QWidget):
         
         f_layout.addSpacing(6)
 
-        self._stats_label = QLabel("0:00 · 0 WORDS")
+        self._stats_label = QLabel("0 WORDS")
         self._stats_label.setFont(font_sans(10, 600))
         stats_color = qcolor_to_rgba(t.text_light)
         self._stats_label.setStyleSheet(f"color: {stats_color}; border: none;")
@@ -852,6 +898,7 @@ class NotepadWidget(QWidget):
         btn_retry.setStyle(fusion)
         btn_retry.setStyleSheet(ghost_btn_style)
         btn_retry.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_retry.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         btn_retry.clicked.connect(self.retryClicked.emit)
         f_layout.addWidget(btn_retry)
 
@@ -882,6 +929,7 @@ class NotepadWidget(QWidget):
             f"QPushButton:hover {{ background-color: {red_hover_rgba}; border: 1px solid {red_hover_rgba}; }}"
         )
         self._btn_copy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_copy.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_copy.clicked.connect(self._on_copy_close)
         f_layout.addWidget(self._btn_copy)
 
@@ -890,18 +938,17 @@ class NotepadWidget(QWidget):
     def _on_copy_close(self):
         self.copyCloseClicked.emit(self.get_text())
 
-    def set_text(self, text: str, duration: float = 0.0):
+    def set_text(self, text: str, **kwargs):
         if text == self._prev_text:
             return
         self._prev_text = text
         self._text_edit.setPlainText(text)
         self._text_edit.setReadOnly(True)
-        
+        self._resize_text_edit(self._text_edit, max_lines=5)
+
         words = len(text.split())
-        m = int(duration) // 60
-        s = int(duration) % 60
-        self._stats_label.setText(f"{m}:{s:02d} \u00b7 {words} WORDS")
-        
+        self._stats_label.setText(f"{words} WORDS")
+
         self._animate_text_popup()
 
     def append_word(self, word: str):
@@ -953,6 +1000,36 @@ class NotepadWidget(QWidget):
             timer.stop()
         self._word_fade_timers.clear()
         self._text_edit.clear()
+        self._text_edit.show()
+        self._text_edit.setReadOnly(True)
+        self._prev_text = ""
+        # Reset AI state so stale history/AI text doesn't bleed through
+        self._ai_skeleton.stop()
+        self._ai_text_edit.clear()
+        self._ai_text_edit.hide()
+        self._ai_divider.hide()
+        if self._ai_badge.isVisible():
+            self._ai_badge.hide()
+            self._ai_badge_fx.setOpacity(0.0)
+        self._btn_copy.setText("Copy text")
+        self._btn_copy.setEnabled(True)
+        self._btn_copy.setGraphicsEffect(None)
+        # Reset heights to natural sizing
+        self._text_edit.setMinimumHeight(0)
+        self._text_edit.setMaximumHeight(16777215)
+        self._ai_text_edit.setMinimumHeight(0)
+        self._ai_text_edit.setMaximumHeight(16777215)
+
+    def _resize_text_edit(self, text_edit, max_lines=5):
+        """Resize a QTextEdit to fit its content, capped at max_lines."""
+        doc = text_edit.document()
+        doc.adjustSize()
+        line_h = text_edit.fontMetrics().lineSpacing()
+        content_h = doc.size().height() + 28  # 14px CSS padding top + bottom
+        max_h = line_h * max_lines + 36  # padding + document margin
+        min_h = line_h + 36
+        h = int(max(min_h, min(content_h, max_h)))
+        text_edit.setFixedHeight(h)
 
     def get_text(self) -> str:
         if self._ai_text_edit.isVisible():
@@ -964,7 +1041,9 @@ class NotepadWidget(QWidget):
     def show_raw(self):
         self._ai_skeleton.stop()
         self._ai_text_edit.hide()
+        self._ai_divider.hide()
         self._text_edit.show()
+        self._resize_text_edit(self._text_edit, max_lines=5)
         if self._ai_badge.isVisible():
             self._fade_badge(0.0)
         self._btn_copy.setText("Copy text")
@@ -972,27 +1051,76 @@ class NotepadWidget(QWidget):
         self._btn_copy.setGraphicsEffect(None)
 
     def show_ai_loading(self):
-        self._text_edit.hide()
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+
         self._ai_text_edit.hide()
-        self._ai_skeleton.start()
+        self._ai_divider.hide()
+
+        # Fade out raw text while fading in skeleton
+        text_was_visible = self._text_edit.isVisible()
+
+        if text_was_visible:
+            # Crossfade: text fades out → skeleton fades in (staggered)
+            text_fx = QGraphicsOpacityEffect(self._text_edit)
+            text_fx.setOpacity(1.0)
+            self._text_edit.setGraphicsEffect(text_fx)
+
+            # Start skeleton hidden via opacity effect
+            self._ai_skeleton.start()
+            skel_fx = QGraphicsOpacityEffect(self._ai_skeleton)
+            skel_fx.setOpacity(0.0)
+            self._ai_skeleton.setGraphicsEffect(skel_fx)
+
+            seq = QSequentialAnimationGroup(self)
+
+            # Phase 1: Fade out raw text (250ms)
+            fade_out = QPropertyAnimation(text_fx, b"opacity")
+            fade_out.setDuration(250)
+            fade_out.setStartValue(1.0)
+            fade_out.setEndValue(0.0)
+            fade_out.setEasingCurve(QEasingCurve.Type.OutCubic)
+            seq.addAnimation(fade_out)
+
+            # Phase 2: Fade in skeleton (300ms)
+            fade_in = QPropertyAnimation(skel_fx, b"opacity")
+            fade_in.setDuration(300)
+            fade_in.setStartValue(0.0)
+            fade_in.setEndValue(1.0)
+            fade_in.setEasingCurve(QEasingCurve.Type.OutCubic)
+            seq.addAnimation(fade_in)
+
+            def _on_crossfade_done():
+                self._text_edit.hide()
+                self._text_edit.setGraphicsEffect(None)
+                self._ai_skeleton.setGraphicsEffect(None)
+
+            seq.finished.connect(_on_crossfade_done)
+            self._ai_crossfade_anim = seq  # prevent GC
+            seq.start()
+        else:
+            self._text_edit.hide()
+            self._ai_skeleton.start()
+
         if not self._ai_badge.isVisible():
             self._fade_badge(1.0)
         self._btn_copy.setText("...")
         self._btn_copy.setEnabled(False)
-        from PyQt6.QtWidgets import QGraphicsOpacityEffect
-        fx = QGraphicsOpacityEffect()
-        fx.setOpacity(0.55)
-        self._btn_copy.setGraphicsEffect(fx)
-        
+        copy_fx = QGraphicsOpacityEffect()
+        copy_fx.setOpacity(0.55)
+        self._btn_copy.setGraphicsEffect(copy_fx)
+
     def show_ai_result(self, formatted_text: str, show_original: bool = False):
         self._ai_skeleton.stop()
         self._ai_text_edit.setPlainText(formatted_text)
         self._ai_text_edit.show()
+        self._resize_text_edit(self._ai_text_edit, max_lines=5)
         if show_original:
-            # Show raw transcript below AI result (dimmed, read-only)
+            self._ai_divider.show()
             self._text_edit.show()
             self._text_edit.setReadOnly(True)
+            self._resize_text_edit(self._text_edit, max_lines=5)
         else:
+            self._ai_divider.hide()
             self._text_edit.hide()
         if not self._ai_badge.isVisible():
             self._fade_badge(1.0)
@@ -1016,29 +1144,29 @@ class NotepadWidget(QWidget):
         anim.start()
 
     def _animate_text_popup(self):
-        """Subtle scale bounce + fade when text updates — matches pill entrance feel."""
+        """Scale bounce + fade when text updates — flows up from the pill."""
         group = QParallelAnimationGroup(self)
 
-        # Opacity: 0.4 → 1.0
+        # Opacity: 0.0 → 1.0  (full fade-in for visible flow)
         op = QPropertyAnimation(self, b"text_opacity")
-        op.setDuration(220)
-        op.setStartValue(0.4)
+        op.setDuration(280)
+        op.setStartValue(0.0)
         op.setEndValue(1.0)
         op.setEasingCurve(QEasingCurve.Type.OutCubic)
         group.addAnimation(op)
 
-        # Slide up: 4px → 0px
+        # Slide up: 10px → 0px  (more dramatic entrance)
         ty = QPropertyAnimation(self, b"text_translate_y")
-        ty.setDuration(260)
-        ty.setStartValue(4.0)
+        ty.setDuration(320)
+        ty.setStartValue(10.0)
         ty.setEndValue(0.0)
         ty.setEasingCurve(QEasingCurve.Type.OutBack)
         group.addAnimation(ty)
 
-        # Scale bounce: 0.96 → 1.0
+        # Scale bounce: 0.94 → 1.0
         sc = QPropertyAnimation(self, b"text_scale")
-        sc.setDuration(260)
-        sc.setStartValue(0.96)
+        sc.setDuration(320)
+        sc.setStartValue(0.94)
         sc.setEndValue(1.0)
         sc.setEasingCurve(QEasingCurve.Type.OutBack)
         group.addAnimation(sc)
@@ -1089,9 +1217,11 @@ class OverlayWindow(QWidget):
     rms_received = pyqtSignal(float)
     transcript_received = pyqtSignal(str)
     request_ai_format = pyqtSignal(str)
+    ai_mode_toggled = pyqtSignal(str, bool)
 
-    def __init__(self):
+    def __init__(self, position: str = "bottom_centre"):
         super().__init__()
+        self._position = position
         self._state = OverlayState.IDLE
         self._is_typing_context = False
         self._widget_opacity = 1.0
@@ -1103,6 +1233,8 @@ class OverlayWindow(QWidget):
         self._notepad_opacity = 0.0
         self._connector_h = 0.0
         self._animations: list = []  # keep refs alive
+        self._pill_morph_anim: QPropertyAnimation | None = None
+        self._notepad_clip_h_val = 16777215.0  # unconstrained
 
         # Shadow blend animation state
         self._shadow_from_state: tuple | None = None  # (blur, oy, color, border)
@@ -1113,6 +1245,9 @@ class OverlayWindow(QWidget):
         # AI mode state (tracked across recording → result lifecycle)
         self._ai_mode_active = False
         self._ai_show_original = False
+
+        # Continuing flag (preserved across RECORDING → LIVE_TRANSCRIBING)
+        self._is_continuing = False
 
         # Connector gradient pulse state
         self._streaming = False
@@ -1138,6 +1273,10 @@ class OverlayWindow(QWidget):
         self._enter_idle(None)
 
     # ── Animatable properties ────────────────────────────────
+
+    @property
+    def is_typing_context(self) -> bool:
+        return self._is_typing_context
 
     def set_is_typing_context(self, context: bool):
         self._is_typing_context = context
@@ -1238,13 +1377,38 @@ class OverlayWindow(QWidget):
 
     shadow_blend = pyqtProperty(float, _get_shadow_blend, _set_shadow_blend)
 
+    # ── Pill width morph ─────────────────────────────────────
+
+    def _get_pill_morph_width(self) -> float:
+        return float(self._pill.width())
+
+    def _set_pill_morph_width(self, val: float):
+        w = max(1, int(val))
+        self._pill.setFixedWidth(w)
+        self._reposition()
+
+    pill_morph_width = pyqtProperty(float, _get_pill_morph_width, _set_pill_morph_width)
+
+    # ── Notepad clip height (unroll) ─────────────────────────
+
+    def _get_notepad_clip_h(self) -> float:
+        return self._notepad_clip_h_val
+
+    def _set_notepad_clip_h(self, val: float):
+        self._notepad_clip_h_val = val
+        h = max(0, int(val))
+        self._notepad.setMaximumHeight(h)
+        self.adjustSize()
+
+    notepad_clip_h = pyqtProperty(float, _get_notepad_clip_h, _set_notepad_clip_h)
+
     # ── Setup ───────────────────────────────────────────────
 
     def _setup_window_flags(self):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -1317,6 +1481,12 @@ class OverlayWindow(QWidget):
         live_l.addWidget(self._live_sep)
         self._live_waveform = WaveformWidget(self._live_container)
         live_l.addWidget(self._live_waveform)
+        self._live_sep2 = PillSep(self._live_container)
+        live_l.addWidget(self._live_sep2)
+        self._live_timer_label = QLabel("0:00")
+        self._live_timer_label.setFont(font_sans(11, 600))
+        self._live_timer_label.setStyleSheet(f"color: {timer_color}; letter-spacing: 0.2px;")
+        live_l.addWidget(self._live_timer_label)
         self._live_container.hide()
         pill_layout.addWidget(self._live_container)
 
@@ -1391,7 +1561,7 @@ class OverlayWindow(QWidget):
             return
 
         if self._state == OverlayState.RECORDING:
-            self.transition_to(OverlayState.LIVE_TRANSCRIBING)
+            self.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
 
         if self._state == OverlayState.LIVE_TRANSCRIBING:
             words = text.strip().split()
@@ -1426,6 +1596,14 @@ class OverlayWindow(QWidget):
             self._animate_notepad_bounce()
             self.ai_mode_toggled.emit(raw_text, False)
 
+    def _trigger_ai_format(self, text: str) -> None:
+        """Delayed AI format — fires after raw text has been visible briefly."""
+        if self._state != OverlayState.RESULT_NOTEPAD or not self._ai_mode_active:
+            return
+        self._notepad.show_ai_loading()
+        self._animate_notepad_bounce()
+        self.request_ai_format.emit(text)
+
     @pyqtSlot(str)
     def on_ai_format_completed(self, text: str):
         if self._state == OverlayState.RESULT_NOTEPAD:
@@ -1458,9 +1636,16 @@ class OverlayWindow(QWidget):
         self._timer_seconds += 1
         m = self._timer_seconds // 60
         s = self._timer_seconds % 60
-        self._timer_label.setText(f"{m}:{s:02d}")
+        text = f"{m}:{s:02d}"
+        self._timer_label.setText(text)
+        self._live_timer_label.setText(text)
 
     # ── Positioning ─────────────────────────────────────────
+
+    def set_position(self, position: str) -> None:
+        """Update overlay anchor position and reposition immediately."""
+        self._position = position
+        self._reposition()
 
     def _reposition(self):
         screen = QApplication.primaryScreen()
@@ -1468,8 +1653,23 @@ class OverlayWindow(QWidget):
             return
         geo = screen.availableGeometry()
         self.adjustSize()
-        x = geo.x() + (geo.width() - self.width()) // 2
-        y = geo.y() + geo.height() - self.height() - BOTTOM_MARGIN
+        margin = BOTTOM_MARGIN  # uniform edge padding
+        pos = self._position
+
+        # Horizontal
+        if pos.endswith("left"):
+            x = geo.x() + margin
+        elif pos.endswith("right"):
+            x = geo.x() + geo.width() - self.width() - margin
+        else:  # centre
+            x = geo.x() + (geo.width() - self.width()) // 2
+
+        # Vertical
+        if pos.startswith("top"):
+            y = geo.y() + margin
+        else:  # bottom
+            y = geo.y() + geo.height() - self.height() - margin
+
         self._base_y = y  # store for pill_translate_y window movement
         self.move(x, y + int(self._pill_translate_y))
 
@@ -1531,11 +1731,18 @@ class OverlayWindow(QWidget):
         hide_container: QWidget | None,
         show_container: QWidget,
     ) -> None:
-        """Switch between pill state containers.
+        """Switch between pill state containers with smooth width morph.
 
-        Hides ALL other containers, then shows the target.
-        No QGraphicsEffect used — avoids Qt rendering offset bugs.
+        Hides ALL other containers, shows the target, then animates the
+        pill width from old → new size.  No QGraphicsEffect used.
         """
+        # Stop any in-progress morph
+        if self._pill_morph_anim:
+            self._pill_morph_anim.stop()
+            self._pill_morph_anim = None
+
+        old_width = self._pill.width()
+
         for container in (
             self._idle_container,
             self._rec_container,
@@ -1547,9 +1754,37 @@ class OverlayWindow(QWidget):
                 container.hide()
 
         show_container.show()
+
+        # Calculate target width (temporarily release constraints)
+        self._pill.setMinimumWidth(0)
+        self._pill.setMaximumWidth(16777215)
+        self._pill.layout().activate()
+        target_width = self._pill.sizeHint().width()
+
+        # Animate width morph if significant change (skip first call / same size)
+        if hide_container is not None and old_width > 0 and abs(target_width - old_width) > 4:
+            self._pill.setFixedWidth(old_width)
+            self._pill_morph_anim = self._make_anim(
+                b"pill_morph_width", float(old_width), float(target_width),
+                280, EASE_SPRING,
+            )
+            self._pill_morph_anim.finished.connect(self._on_pill_morph_done)
+            self._animations.append(self._pill_morph_anim)
+            self._pill_morph_anim.start()
+        else:
+            self._pill.adjustSize()
+
+        self.adjustSize()
+        self._reposition()
+
+    def _on_pill_morph_done(self):
+        """Release fixed-width constraint after pill morph animation."""
+        self._pill.setMinimumWidth(0)
+        self._pill.setMaximumWidth(16777215)
         self._pill.adjustSize()
         self.adjustSize()
         self._reposition()
+        self._pill_morph_anim = None
 
     # ── Connector gradient pulse ─────────────────────────────
 
@@ -1627,12 +1862,21 @@ class OverlayWindow(QWidget):
         self.setWindowOpacity(1.0)
         self.pill_opacity = 1.0
         self._notepad_translate_y = -8.0
+        # Release pill width constraint
+        self._pill.setMinimumWidth(0)
+        self._pill.setMaximumWidth(16777215)
+        # Release notepad clip constraint
+        self._notepad.setMaximumHeight(16777215)
+        self._notepad_clip_h_val = 16777215.0
 
     def _stop_animations(self):
         for anim in self._animations:
             if hasattr(anim, "stop"):
                 anim.stop()
         self._animations.clear()
+        if self._pill_morph_anim:
+            self._pill_morph_anim.stop()
+            self._pill_morph_anim = None
         self._reset_pill_transforms()
 
     def _animate_pill_entrance(self):
@@ -1652,43 +1896,54 @@ class OverlayWindow(QWidget):
         group.start()
 
     def _animate_notepad_open(self):
-        """Multi-track staggered: pill nudge → connector draw → notepad entrance."""
+        """Multi-track staggered: pill nudge → connector draw → notepad unroll.
+
+        The notepad starts with maxHeight=1 (set before this call) and
+        expands to its natural height, creating an organic unfold effect.
+        """
+        target_np_h = max(self._notepad.sizeHint().height(), 80)
+        self._notepad_clip_h_val = 1.0
+
         master = QParallelAnimationGroup(self)
 
-        # Track 1 (0ms): Pill nudge up -4px then settle back
+        # Track 1 (0ms): Pill nudge up -6px then settle back
         nudge_seq = QSequentialAnimationGroup(self)
         nudge_seq.addAnimation(
-            self._make_anim(b"pill_translate_y", 0.0, -4.0, 260, EASE_SETTLE)
+            self._make_anim(b"pill_translate_y", 0.0, -6.0, 260, EASE_SETTLE)
         )
         nudge_seq.addAnimation(
-            self._make_anim(b"pill_translate_y", -4.0, 0.0, 200, EASE_SETTLE)
+            self._make_anim(b"pill_translate_y", -6.0, 0.0, 200, EASE_SETTLE)
         )
         master.addAnimation(nudge_seq)
 
-        # Track 2 (60ms delay): Connector draws down
+        # Track 2 (40ms delay): Connector draws down
         conn_seq = QSequentialAnimationGroup(self)
-        conn_seq.addPause(60)
+        conn_seq.addPause(40)
         conn_seq.addAnimation(
             self._make_anim(b"connector_h", 0.0, float(CONNECTOR_HEIGHT),
                             ANIM_NOTEPAD_OPEN, EASE_SPRING)
         )
         master.addAnimation(conn_seq)
 
-        # Track 3 (180ms delay): Notepad fades in + slides up
-        np_seq = QSequentialAnimationGroup(self)
-        np_seq.addPause(180)
-        np_group = QParallelAnimationGroup(self)
-        np_group.addAnimation(
-            self._make_anim(b"notepad_opacity", 0.0, 1.0, 340, EASE_SPRING)
+        # Track 3 (120ms delay): Notepad unrolls (clip height grows)
+        clip_seq = QSequentialAnimationGroup(self)
+        clip_seq.addPause(120)
+        clip_seq.addAnimation(
+            self._make_anim(b"notepad_clip_h", 1.0, float(target_np_h),
+                            400, EASE_SPRING)
         )
-        np_group.addAnimation(
-            self._make_anim(b"notepad_translate_y", -12.0, 0.0, 340, EASE_SPRING)
-        )
-        np_seq.addAnimation(np_group)
-        master.addAnimation(np_seq)
+        master.addAnimation(clip_seq)
 
+        master.finished.connect(self._on_notepad_open_done)
         self._animations.append(master)
         master.start()
+
+    def _on_notepad_open_done(self):
+        """Release notepad clip constraint after unroll animation."""
+        self._notepad.setMaximumHeight(16777215)
+        self._notepad_clip_h_val = 16777215.0
+        self.adjustSize()
+        self._reposition()
 
     def _animate_notepad_close(self):
         """Multi-track reverse: notepad fade → connector collapse → pill settle."""
@@ -1730,23 +1985,25 @@ class OverlayWindow(QWidget):
 
     def _on_notepad_closed(self):
         self._notepad.hide()
+        self._notepad.setMaximumHeight(16777215)
+        self._notepad_clip_h_val = 16777215.0
         self._connector.setFixedHeight(0)
         self.adjustSize()
         self._reposition()
 
     def _animate_exit_success(self):
-        """Dismissal: bounce up slightly, then drop down and fade out."""
+        """Dismissal: gentle drift up + fade out for pill and notepad together."""
         group = QParallelAnimationGroup(self)
-        
-        seq = QSequentialAnimationGroup(self)
-        seq.addAnimation(self._make_anim(b"pill_translate_y", 0.0, -12.0, 200, EASE_SETTLE))
-        seq.addAnimation(self._make_anim(b"pill_translate_y", -12.0, 40.0, 240, EASE_LIFT))
-        group.addAnimation(seq)
 
-        fade_seq = QSequentialAnimationGroup(self)
-        fade_seq.addPause(150)
-        fade_seq.addAnimation(self._make_anim(b"widget_opacity", 1.0, 0.0, 240, EASE_LIFT))
-        group.addAnimation(fade_seq)
+        # Subtle upward drift (-6px over 500ms)
+        group.addAnimation(
+            self._make_anim(b"pill_translate_y", 0.0, -6.0, 500, EASE_LIFT)
+        )
+
+        # Smooth fade-out of entire window
+        group.addAnimation(
+            self._make_anim(b"widget_opacity", 1.0, 0.0, 500, EASE_LIFT)
+        )
 
         self._animations.append(group)
         group.start()
@@ -1755,7 +2012,8 @@ class OverlayWindow(QWidget):
 
     def transition_to(self, new_state: OverlayState, **kwargs):
         old_state = self._state
-        if new_state == old_state:
+        # Allow RESULT_NOTEPAD re-entry (e.g. clicking a different history item)
+        if new_state == old_state and new_state != OverlayState.RESULT_NOTEPAD:
             return
         self._state = new_state
 
@@ -1808,6 +2066,8 @@ class OverlayWindow(QWidget):
         self._notepad_opacity = 0.0
         self._notepad_translate_y = -8.0
         self._notepad.hide()
+        self._notepad.setMaximumHeight(16777215)
+        self._notepad_clip_h_val = 16777215.0
         self._stop_streaming()
 
     def _enter_idle(self, from_state, **kwargs):
@@ -1835,7 +2095,8 @@ class OverlayWindow(QWidget):
 
     def _enter_recording(self, from_state, **kwargs):
         is_continuing = kwargs.get("is_continuing", False)
-        
+        self._is_continuing = is_continuing  # store for internal transitions
+
         self._stop_animations()
         self._stop_pill_peripherals()
         
@@ -1847,6 +2108,7 @@ class OverlayWindow(QWidget):
         self._set_pill_shadow_active()
         self._timer_seconds = 0
         self._timer_label.setText("0:00")
+        self._live_timer_label.setText("0:00")
         self._clock_timer.start()
         self._live_words = []
 
@@ -1875,62 +2137,62 @@ class OverlayWindow(QWidget):
         # Transfer waveform RMS from recording
         self._live_waveform.set_rms(self._waveform._rms)
 
-        # Keep timer running
+        # Keep timer running — sync live label to current count
+        m = self._timer_seconds // 60
+        s = self._timer_seconds % 60
+        self._live_timer_label.setText(f"{m}:{s:02d}")
         self._clock_timer.start()
 
         # Crossfade pill state
         old_container = self._container_for_state(from_state) if from_state else None
         self._crossfade_pill_state(old_container, self._live_container)
 
-        if self._is_typing_context:
-            self._live_text.hide()
-            self._live_sep.hide()
-            self._live_cursor.hide()
-            
+        self._live_text.show()
+        self._live_sep.show()
+        self._live_cursor.show()
+        
+        if not is_continuing:
+            # Show notepad with clip-height=1 for unroll animation
+            self._notepad.setMaximumHeight(1)
+            self._notepad.show()
+            self._notepad.clear_text()
+            self._notepad.start_dot_pulse()
+
+            # Sync AI toggle to current mode
+            self._notepad._ai_toggle.blockSignals(True)
+            self._notepad._ai_toggle.set_checked(self._ai_mode_active, animate=False)
+            self._notepad._ai_toggle.blockSignals(False)
+
             self.adjustSize()
             self._reposition()
+
+            # Animate notepad dropping down + start connector pulse
+            self._animate_notepad_open()
+            self._start_streaming()
         else:
-            self._live_text.show()
-            self._live_sep.show()
-            self._live_cursor.show()
-            
-            if not is_continuing:
-                # Show notepad with animation
-                self._notepad.show()
-                self._notepad.clear_text()
-                self._notepad.start_dot_pulse()
+            self._notepad.show()
+            self._notepad.start_dot_pulse()
 
-                # Sync AI toggle to current mode
-                self._notepad._ai_toggle.blockSignals(True)
-                self._notepad._ai_toggle.set_checked(self._ai_mode_active, animate=False)
-                self._notepad._ai_toggle.blockSignals(False)
+            # Sync AI toggle to current mode
+            self._notepad._ai_toggle.blockSignals(True)
+            self._notepad._ai_toggle.set_checked(self._ai_mode_active, animate=False)
+            self._notepad._ai_toggle.blockSignals(False)
 
-                self.adjustSize()
-                self._reposition()
-
-                # Animate notepad dropping down + start connector pulse
-                self._animate_notepad_open()
-                self._start_streaming()
-            else:
-                self._notepad.show()
-                self._notepad.start_dot_pulse()
-
-                # Sync AI toggle to current mode
-                self._notepad._ai_toggle.blockSignals(True)
-                self._notepad._ai_toggle.set_checked(self._ai_mode_active, animate=False)
-                self._notepad._ai_toggle.blockSignals(False)
-
-                self._connector.setFixedHeight(CONNECTOR_HEIGHT)
-                self._connector_h = float(CONNECTOR_HEIGHT)
-                self._start_streaming()
+            self._connector.setFixedHeight(CONNECTOR_HEIGHT)
+            self._connector_h = float(CONNECTOR_HEIGHT)
+            self._start_streaming()
 
     def _enter_result_field(self, from_state, text: str = "", **kwargs):
         t = theme()
         self._stop_animations()
         self._stop_pill_peripherals()
+        self._focus_timer.stop()
 
-        # If coming from live with notepad open, close notepad
-        if from_state in (OverlayState.LIVE_TRANSCRIBING, OverlayState.RESULT_NOTEPAD) and not self._is_typing_context:
+        # Keep notepad visible if coming from RESULT_NOTEPAD — it fades out
+        # with the whole window during the exit animation (widget_opacity → 0).
+        if from_state == OverlayState.RESULT_NOTEPAD:
+            pass  # notepad stays on screen
+        elif from_state == OverlayState.LIVE_TRANSCRIBING:
             self._animate_notepad_close()
         else:
             self._hide_notepad_instant()
@@ -1948,7 +2210,7 @@ class OverlayWindow(QWidget):
         def _start_exit():
             if self._state == OverlayState.RESULT_FIELD:
                 self._animate_exit_success()
-                QTimer.singleShot(ANIM_PILL_EXIT + 50, self._finish_success_exit)
+                QTimer.singleShot(550, self._finish_success_exit)
 
         QTimer.singleShot(2200, _start_exit)
 
@@ -1971,12 +2233,10 @@ class OverlayWindow(QWidget):
         entry = kwargs.get("history_entry")
         if entry:
             ai_default = bool(entry.get("ai_text"))
-            duration = entry.get("duration_s", 0.0)
             text = entry.get("text", "")
             ai_preloaded_text = entry.get("ai_text", "")
         else:
             ai_default = kwargs.get("ai_default", False)
-            duration = kwargs.get("duration", 0.0)
             ai_preloaded_text = ""
 
         if "ai_default" in kwargs or entry:
@@ -1984,7 +2244,7 @@ class OverlayWindow(QWidget):
         if "ai_show_original" in kwargs:
             self._ai_show_original = kwargs["ai_show_original"]
 
-        self._notepad.set_text(text, duration=duration)
+        self._notepad.set_text(text)
         self._notepad.stop_dot_pulse()
 
         # Sync toggle to current AI mode (block signals to avoid double-fire)
@@ -1996,8 +2256,10 @@ class OverlayWindow(QWidget):
             if ai_preloaded_text:
                 self._notepad.show_ai_result(ai_preloaded_text, show_original=self._ai_show_original)
             else:
-                self._notepad.show_ai_loading()
-                self.request_ai_format.emit(text)
+                # Show raw text first, then crossfade into AI skeleton after delay
+                self._notepad.show_raw()
+                # 800ms lets the notepad open animation finish + raw text be readable
+                QTimer.singleShot(800, lambda: self._trigger_ai_format(text))
         else:
             self._notepad.show_raw()
 
@@ -2007,7 +2269,6 @@ class OverlayWindow(QWidget):
         self._crossfade_pill_state(old_container, self._np_pill_container)
 
         self.show()
-        self.raise_()
         self.adjustSize()
         self._reposition()
 
@@ -2029,6 +2290,12 @@ class OverlayWindow(QWidget):
         """Dismiss notepad when the overlay loses focus (click-away)."""
         if self._state != OverlayState.RESULT_NOTEPAD:
             self._focus_timer.stop()
+            return
+        # Don't auto-dismiss while AI formatting is in progress
+        if self._notepad._ai_skeleton.isVisible():
+            return
+        # Don't auto-dismiss in typing context — another window *should* have focus
+        if self._is_typing_context:
             return
         active = QApplication.activeWindow()
         if active is not self and active is not None:

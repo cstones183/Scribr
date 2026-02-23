@@ -1,34 +1,70 @@
-# context_detector.py — Uses the macOS Accessibility API (pyobjc) to detect whether a text field is currently focused.
+# context_detector.py — Uses the macOS Accessibility API (pyobjc) to detect
+# whether a text field is currently focused.  Covers native AppKit fields,
+# Chromium/Safari web inputs, contenteditable divs, and Electron apps.
 from ApplicationServices import (
     AXUIElementCreateSystemWide,
     AXUIElementCopyAttributeValue,
 )
 
+
 def is_text_field_focused() -> bool:
-    """Returns True if the user currently has a text input field focused."""
+    """Returns True if the user currently has an editable text input focused."""
     try:
         system_wide = AXUIElementCreateSystemWide()
-        
-        # Get focused UI element
-        err, focused_element = AXUIElementCopyAttributeValue(system_wide, "AXFocusedUIElement")
-        if err != 0 or not focused_element:
+
+        # Get focused UI element (3rd arg is pass-by-reference out pointer → None)
+        err, focused = AXUIElementCopyAttributeValue(
+            system_wide, "AXFocusedUIElement", None
+        )
+        if err != 0 or not focused:
             return False
-            
-        # Get the role of the focused element
-        err, role = AXUIElementCopyAttributeValue(focused_element, "AXRole")
-        if err == 0 and role:
-            # Common text input roles
-            text_roles = {"AXTextField", "AXTextArea", "AXComboBox", "AXWebArea", "AXDocument"}
-            if role in text_roles:
+
+        # 1. AXSelectedTextRange — universal marker for editable text.
+        #    Present on NSTextField, NSTextView, Chrome/Safari <input>/<textarea>,
+        #    contenteditable divs, and most Electron fields.
+        err, _ = AXUIElementCopyAttributeValue(
+            focused, "AXSelectedTextRange", None
+        )
+        if err == 0:
+            return True
+
+        # 2. AXInsertionPointLineNumber — another strong text-editing signal.
+        #    Some web text editors expose this even when AXSelectedTextRange is absent.
+        err, _ = AXUIElementCopyAttributeValue(
+            focused, "AXInsertionPointLineNumber", None
+        )
+        if err == 0:
+            return True
+
+        # 3. Role-based check for standard input types.
+        err, role = AXUIElementCopyAttributeValue(focused, "AXRole", None)
+        role_str = str(role) if err == 0 and role else ""
+        if role_str in {"AXTextField", "AXTextArea", "AXComboBox"}:
+            return True
+
+        # 4. AXRoleDescription — catches web editors where the role is generic
+        #    (AXGroup, AXWebArea) but the description says "text entry area",
+        #    "editable text", "content editable", etc.
+        err, desc = AXUIElementCopyAttributeValue(
+            focused, "AXRoleDescription", None
+        )
+        if err == 0 and desc:
+            desc_lower = str(desc).lower()
+            if any(kw in desc_lower for kw in (
+                "text entry", "text field", "text area",
+                "editable", "search field", "input",
+            )):
                 return True
-                
-        # Also check subrole just to be safe (some apps use generic role + text subrole)
-        err, subrole = AXUIElementCopyAttributeValue(focused_element, "AXSubrole")
-        if err == 0 and subrole:
-            subrole_str = str(subrole)
-            if "Text" in subrole_str or "Document" in subrole_str:
+
+        # 5. AXValue exists and is a string — many web text inputs expose a
+        #    string AXValue even when other text-editing attributes are missing.
+        #    Guard: only count it if the role suggests an interactive element
+        #    (not a static label or heading).
+        if role_str in {"AXGroup", "AXWebArea", "AXUnknown", "AXDocument"}:
+            err, val = AXUIElementCopyAttributeValue(focused, "AXValue", None)
+            if err == 0 and isinstance(val, str):
                 return True
-                
+
         return False
     except Exception as e:
         print(f"[ContextDetector] Error checking focus: {e}")

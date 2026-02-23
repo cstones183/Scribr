@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scribr — Menu Bar Icon</title>
+<link href="https://fonts.googleapis.com/css2?family=Lora:wght@600&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #F7F5F2; --surface: #FFFFFF; --surface-2: #EFEDE9;
+    --border: #E2DED8; --text: #2D2926; --text-mid: #6B6560;
+    --text-light: #A8A29C; --red: #D94F3D;
+    --serif: 'Lora', Georgia, serif;
+    --sans: 'Plus Jakarta Sans', sans-serif;
+  }
+  body { background: var(--bg); font-family: var(--sans); padding: 60px 80px; color: var(--text); }
+
+  h1 { font-family: var(--serif); font-size: 32px; font-weight: 600; margin-bottom: 6px; }
+  h1 span { color: var(--red); }
+  .subtitle { font-size: 13px; color: var(--text-light); margin-bottom: 52px; line-height: 1.7; }
+
+  .section-label {
+    font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--red); font-weight: 600; margin-bottom: 16px;
+  }
+
+  /* ── Simulated macOS menu bars ── */
+  .bars-grid { display: flex; flex-direction: column; gap: 3px; margin-bottom: 48px; border-radius: 14px; overflow: hidden; }
+
+  .mac-bar {
+    height: 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 12px;
+    font-size: 13px; font-weight: 500;
+    font-family: -apple-system, 'SF Pro Text', sans-serif;
+    position: relative;
+  }
+  .mac-bar.light-idle      { background: #e8e8e8; color: #1d1d1f; }
+  .mac-bar.light-recording { background: #e8e8e8; color: #1d1d1f; }
+  .mac-bar.dark-idle       { background: #1e1e1e; color: #f0f0f0; }
+  .mac-bar.dark-recording  { background: #1e1e1e; color: #f0f0f0; }
+
+  .bar-left  { display: flex; align-items: center; gap: 16px; }
+  .bar-right { display: flex; align-items: center; gap: 8px; }
+  .bar-apple { font-size: 15px; margin-right: 2px; }
+  .bar-time  { font-variant-numeric: tabular-nums; font-size: 12px; font-weight: 600; }
+  .bar-icons { display: flex; align-items: center; gap: 4px; }
+
+  /* The actual icon — rendered at 2× for clarity in the preview */
+  .mb-icon {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+  }
+  .mb-icon.active-light { background: rgba(0,0,0,0.12); }
+  .mb-icon.active-dark  { background: rgba(255,255,255,0.15); }
+
+  .bar-label {
+    position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+    font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
+    font-family: var(--sans); font-weight: 600;
+  }
+  .bar-state-label {
+    font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase;
+    font-family: var(--sans); font-weight: 600; color: var(--text-light);
+    margin-bottom: 5px;
+  }
+
+  /* ── Icon showcase cards ── */
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 48px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 18px; overflow: hidden;
+  }
+  .card-preview {
+    padding: 48px 40px; display: flex; align-items: center;
+    justify-content: center; gap: 32px;
+  }
+  .card-preview.light-bg  { background: #e8e8e8; }
+  .card-preview.dark-bg   { background: #1e1e1e; }
+
+  .icon-size-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .icon-size-label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-light); font-family: var(--sans); }
+  .icon-size-label.on-dark { color: rgba(255,255,255,0.35); }
+
+  .card-footer {
+    padding: 18px 22px; border-top: 1px solid var(--border);
+    background: var(--surface-2);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-name  { font-size: 13px; font-weight: 600; color: var(--text); }
+  .card-desc  { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+
+  .btn-dl {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--red); color: white;
+    font-family: var(--sans); font-size: 12px; font-weight: 600;
+    padding: 9px 18px; border-radius: 50px; border: none;
+    cursor: pointer; text-decoration: none; letter-spacing: 0.02em;
+  }
+  .btn-dl.outline {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-dl:hover { opacity: 0.88; }
+
+  /* ── Notes ── */
+  .notes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .note {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px 26px;
+    display: flex; gap: 14px;
+  }
+  .note-icon {
+    width: 32px; height: 32px; background: #F5EAE8;
+    border-radius: 9px; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0;
+  }
+  .note-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+  .note-body  { font-size: 12px; color: var(--text-mid); line-height: 1.7; }
+  .note-body code {
+    font-family: monospace; font-size: 11px;
+    background: var(--surface-2); padding: 1px 5px; border-radius: 3px;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+  .recording-anim { animation: blink 1.2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<h1>Scrib<span>r</span> — Menu Bar Icon</h1>
+<p class="subtitle">Two states · SVG format · 22×22pt (44×44px @2× Retina)<br>Idle uses white so macOS auto-inverts for dark/light mode. Recording stays coral always.</p>
+
+<!-- SIMULATED MENU BARS -->
+<div class="section-label">In Context — macOS Menu Bar</div>
+<div class="bars-grid">
+
+  <!-- Light, idle -->
+  <div>
+    <div class="bar-state-label">Light mode · Idle</div>
+    <div class="mac-bar light-idle">
+      <div class="bar-left">
+        <span class="bar-apple">&#xF8FF;</span>
+        <span>Finder</span><span>File</span><span>Edit</span><span>View</span>
+      </div>
+      <div class="bar-right">
+        <div class="bar-icons">
+          <span style="font-size:11px; opacity:0.5;">&#9650; &#128246; &#128267;</span>
+          <!-- Idle icon: white shape on light bg renders as dark -->
+          <div class="mb-icon">
+            <svg viewBox="0 0 22 22" width="18" height="18">
+              <defs>
+                <mask id="m1">
+                  <rect width="22" height="22" fill="white"/>
+                  <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/>
+                  <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                  <line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                  <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                </mask>
+              </defs>
+              <rect width="22" height="22" rx="4" fill="#1d1d1f" mask="url(#m1)"/>
+            </svg>
+          </div>
+          <span class="bar-time">9:41</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Light, recording -->
+  <div>
+    <div class="bar-state-label">Light mode · Recording</div>
+    <div class="mac-bar light-recording">
+      <div class="bar-left">
+        <span class="bar-apple">&#xF8FF;</span>
+        <span>Finder</span><span>File</span><span>Edit</span><span>View</span>
+      </div>
+      <div class="bar-right">
+        <div class="bar-icons">
+          <span style="font-size:11px; opacity:0.5;">&#9650; &#128246; &#128267;</span>
+          <div class="mb-icon active-light recording-anim">
+            <svg viewBox="0 0 22 22" width="18" height="18">
+              <defs>
+                <mask id="m2">
+                  <rect width="22" height="22" fill="white"/>
+                  <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/>
+                  <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                  <line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                  <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                </mask>
+              </defs>
+              <rect width="22" height="22" rx="4" fill="#D94F3D" mask="url(#m2)"/>
+            </svg>
+          </div>
+          <span class="bar-time">9:41</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dark, idle -->
+  <div>
+    <div class="bar-state-label" style="margin-top:16px;">Dark mode · Idle</div>
+    <div class="mac-bar dark-idle">
+      <div class="bar-left">
+        <span class="bar-apple">&#xF8FF;</span>
+        <span>Finder</span><span>File</span><span>Edit</span><span>View</span>
+      </div>
+      <div class="bar-right">
+        <div class="bar-icons">
+          <span style="font-size:11px; opacity:0.35;">&#9650; &#128246; &#128267;</span>
+          <div class="mb-icon">
+            <svg viewBox="0 0 22 22" width="18" height="18">
+              <defs>
+                <mask id="m3">
+                  <rect width="22" height="22" fill="white"/>
+                  <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/>
+                  <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                  <line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                  <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                </mask>
+              </defs>
+              <!-- White fill — macOS template image auto-inverts this to white in dark mode -->
+              <rect width="22" height="22" rx="4" fill="white" mask="url(#m3)"/>
+            </svg>
+          </div>
+          <span class="bar-time">9:41</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dark, recording -->
+  <div>
+    <div class="bar-state-label" style="margin-top:16px;">Dark mode · Recording</div>
+    <div class="mac-bar dark-recording">
+      <div class="bar-left">
+        <span class="bar-apple">&#xF8FF;</span>
+        <span>Finder</span><span>File</span><span>Edit</span><span>View</span>
+      </div>
+      <div class="bar-right">
+        <div class="bar-icons">
+          <span style="font-size:11px; opacity:0.35;">&#9650; &#128246; &#128267;</span>
+          <div class="mb-icon active-dark recording-anim">
+            <svg viewBox="0 0 22 22" width="18" height="18">
+              <defs>
+                <mask id="m4">
+                  <rect width="22" height="22" fill="white"/>
+                  <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/>
+                  <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+                  <line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                  <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/>
+                </mask>
+              </defs>
+              <rect width="22" height="22" rx="4" fill="#D94F3D" mask="url(#m4)"/>
+            </svg>
+          </div>
+          <span class="bar-time">9:41</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- DOWNLOAD CARDS -->
+<div class="section-label">Downloads</div>
+<div class="cards">
+
+  <div class="card">
+    <div class="card-preview light-bg">
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="44" height="44">
+          <defs><mask id="p1"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#1d1d1f" mask="url(#p1)"/>
+        </svg>
+        <div class="icon-size-label">On Light</div>
+      </div>
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="28" height="28">
+          <defs><mask id="p2"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#1d1d1f" mask="url(#p2)"/>
+        </svg>
+        <div class="icon-size-label">22pt</div>
+      </div>
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="18" height="18">
+          <defs><mask id="p3"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#1d1d1f" mask="url(#p3)"/>
+        </svg>
+        <div class="icon-size-label">Actual</div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div>
+        <div class="card-name">Idle State</div>
+        <div class="card-desc">White fill · set as template image in Xcode</div>
+      </div>
+      <a class="btn-dl outline" href="scribr_menubar_idle.svg" download="scribr_menubar_idle.svg">↓ SVG</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-preview dark-bg">
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="44" height="44">
+          <defs><mask id="p4"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#D94F3D" mask="url(#p4)"/>
+        </svg>
+        <div class="icon-size-label on-dark">On Dark</div>
+      </div>
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="28" height="28">
+          <defs><mask id="p5"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#D94F3D" mask="url(#p5)"/>
+        </svg>
+        <div class="icon-size-label on-dark">22pt</div>
+      </div>
+      <div class="icon-size-wrap">
+        <svg viewBox="0 0 22 22" width="18" height="18">
+          <defs><mask id="p6"><rect width="22" height="22" fill="white"/><rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="black"/><path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="black" stroke-width="1.5" fill="none" stroke-linecap="round"/><line x1="11" y1="15" x2="11" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/><line x1="8" y1="18.5" x2="14" y2="18.5" stroke="black" stroke-width="1.5" stroke-linecap="round"/></mask></defs>
+          <rect width="22" height="22" rx="4" fill="#D94F3D" mask="url(#p6)"/>
+        </svg>
+        <div class="icon-size-label on-dark">Actual</div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div>
+        <div class="card-name">Recording State</div>
+        <div class="card-desc">Coral fill · swap in when mic is active</div>
+      </div>
+      <a class="btn-dl" href="scribr_menubar_recording.svg" download="scribr_menubar_recording.svg">↓ SVG</a>
+    </div>
+  </div>
+
+</div>
+
+<!-- IMPLEMENTATION NOTES -->
+<div class="section-label">Implementation Notes</div>
+<div class="notes">
+  <div class="note">
+    <div class="note-icon">
+      <svg width="16" height="16" viewBox="0 0 22 22" fill="none">
+        <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="#D94F3D"/>
+        <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="#D94F3D" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <line x1="11" y1="15" x2="11" y2="18.5" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div>
+      <div class="note-title">Idle — use as template image</div>
+      <div class="note-body">In Xcode, set the idle SVG/PNG as a template image (<code>isTemplate = true</code>). macOS automatically renders it in black on light mode and white on dark mode.</div>
+    </div>
+  </div>
+  <div class="note">
+    <div class="note-icon">
+      <svg width="16" height="16" viewBox="0 0 22 22" fill="none">
+        <rect x="8.5" y="1.5" width="5" height="10" rx="2.5" fill="#D94F3D"/>
+        <path d="M4.5 9.5 Q4.5 15 11 15 Q17.5 15 17.5 9.5" stroke="#D94F3D" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+        <line x1="11" y1="15" x2="11" y2="18.5" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="8" y1="18.5" x2="14" y2="18.5" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div>
+      <div class="note-title">Recording — do not use as template</div>
+      <div class="note-body">The coral icon must NOT be a template image — the colour needs to stay coral in both modes. Set <code>isTemplate = false</code> and swap it in when recording starts.</div>
+    </div>
+  </div>
+  <div class="note">
+    <div class="note-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke="#D94F3D" stroke-width="1.5"/>
+        <line x1="8" y1="12" x2="16" y2="12" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="12" y1="8" x2="12" y2="16" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div>
+      <div class="note-title">PNG export sizes</div>
+      <div class="note-body">Export at <code>22×22px</code> (1×) and <code>44×44px</code> (2× Retina). Name them <code>icon.png</code> and <code>icon@2x.png</code> — macOS picks the right one automatically.</div>
+    </div>
+  </div>
+  <div class="note">
+    <div class="note-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="#D94F3D" stroke-width="1.5"/>
+        <path d="M12 8v4l3 3" stroke="#D94F3D" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div>
+      <div class="note-title">Animating the transition</div>
+      <div class="note-body">For a smooth swap, use <code>NSStatusItem.button.image</code> and fade between the two using a <code>CABasicAnimation</code> on opacity — keeps it feeling polished.</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -45,6 +45,7 @@ class ToggleSwitch(QWidget):
         self._knob_x = 20.0 if checked else 2.0
         self.setFixedSize(42, 24)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._anim = QPropertyAnimation(self, b"knob_x")
         self._anim.setDuration(250)

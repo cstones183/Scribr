@@ -25,6 +25,7 @@ from overlay import OverlayState, OverlayWindow
 from context_detector import is_text_field_focused
 from recorder import Recorder
 from settings import SettingsManager
+from stats import StatsManager
 from settings_window import SettingsWindow
 from transcriber import (
     GroqTranscriber,
@@ -33,6 +34,7 @@ from transcriber import (
     TranscriptionError,
 )
 
+from pynput.keyboard import Controller, Key
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import QApplication
 
@@ -45,6 +47,8 @@ class _ThreadBridge(QObject):
     transcription_error = pyqtSignal()
     ai_format_completed = pyqtSignal(str)
     ai_format_failed = pyqtSignal()
+    hotkey_pressed = pyqtSignal()
+    hotkey_released = pyqtSignal()
 
 
 class ScribrApp:
@@ -53,14 +57,27 @@ class ScribrApp:
     def __init__(self) -> None:
         self._qt_app = QApplication(sys.argv)
 
+        # ── Hide from macOS Dock (Run as Accessory) ──
+        try:
+            import AppKit
+            # NSApplicationActivationPolicyAccessory = 1 (hides dock icon, allows windows to show)
+            ns_app = AppKit.NSApplication.sharedApplication()
+            ns_app.setActivationPolicy_(1)
+        except ImportError:
+            print("[App] Warning: AppKit not installed, cannot hide Dock icon.")
+
         self._settings = SettingsManager()
+        self._stats = StatsManager()
         self._history = HistoryManager()
+        self._keyboard = Controller()
 
         # ── Settings window (lazy) ──
         self._settings_window: SettingsWindow | None = None
 
         # ── Overlay ──
-        self._overlay = OverlayWindow()
+        self._overlay = OverlayWindow(
+            position=self._settings.get("overlay_position", "bottom_centre"),
+        )
 
         # ── Menubar ──
         self._menubar = ScribrMenubar(history=self._history)
@@ -78,6 +95,7 @@ class ScribrApp:
             on_press=self._on_hotkey_press,
             on_release=self._on_hotkey_release,
             on_permission_error=self._on_permission_error,
+            key_name=self._settings.get("hotkey", "alt_r"),
         )
         self._hotkey.start()
 
@@ -96,8 +114,12 @@ class ScribrApp:
         self._bridge.final_transcript.connect(self._on_final_transcript)
         self._bridge.live_transcript.connect(self._overlay.update_transcript)
         self._bridge.transcription_error.connect(self._on_transcription_error)
-        self._bridge.ai_format_completed.connect(self._overlay.on_ai_format_completed)
+        self._bridge.ai_format_completed.connect(self._on_ai_format_completed)
         self._bridge.ai_format_failed.connect(self._overlay.on_ai_format_failed)
+
+        # Hotkey signals (pynput bg thread → main thread via signal)
+        self._bridge.hotkey_pressed.connect(self._start_recording)
+        self._bridge.hotkey_released.connect(self._stop_recording)
 
         # Connect overlay's request signal
         self._overlay.request_ai_format.connect(self._on_ai_format_requested)
@@ -113,6 +135,8 @@ class ScribrApp:
         self._is_continuing = False
         self._previous_text = ""
         self._recording_start: float = 0.0
+        self._pending_paste_context = False  # cached typing-context for deferred AI paste
+        self._cached_typing_context = False  # set on pynput thread before signal delivery
         self._total_duration: float = 0.0
 
         # ── Watch for system theme changes ──
@@ -163,12 +187,15 @@ class ScribrApp:
     # ─────────────────────────────────────────────────────
 
     def _on_hotkey_press(self) -> None:
-        print("[Hotkey] Right Option PRESSED")
-        QTimer.singleShot(0, self._start_recording)
+        # Detect text field focus NOW on the pynput thread — before the
+        # modifier key event propagates and disrupts macOS AX focus state.
+        self._cached_typing_context = is_text_field_focused()
+        print(f"[Hotkey] Right Option PRESSED (typing_context={self._cached_typing_context})")
+        self._bridge.hotkey_pressed.emit()
 
     def _on_hotkey_release(self) -> None:
         print("[Hotkey] Right Option RELEASED")
-        QTimer.singleShot(0, self._stop_recording)
+        self._bridge.hotkey_released.emit()
 
     # ─────────────────────────────────────────────────────
     #  RECORDING START / STOP (main thread)
@@ -190,7 +217,9 @@ class ScribrApp:
         self._recording_start = time.time()
 
         print("[App] Starting recording...")
-        self._overlay.set_is_typing_context(is_text_field_focused())
+        self._overlay.set_is_typing_context(
+            getattr(self, "_cached_typing_context", False)
+        )
         self._overlay.set_ai_mode(
             active=self._settings.get("ai_mode_default", False),
             show_original=self._settings.get("ai_show_original", False),
@@ -218,6 +247,12 @@ class ScribrApp:
         wav_bytes = self._recorder.stop()
         duration = time.time() - self._recording_start
         self._total_duration += duration
+        
+        api_cost = 0.0
+        if isinstance(self._transcriber, OpenAITranscriber):
+            api_cost = (duration / 60.0) * 0.006
+        self._stats.add_clip(duration, api_cost)
+
         print(f"[App] Stopped recording ({duration:.1f}s, total={self._total_duration:.1f}s, {len(wav_bytes)} bytes)")
         print(f"[App] Transcriber: {type(self._transcriber).__name__ if self._transcriber else 'None'}")
         print(f"[App] Local transcriber: {self._local_transcriber is not None}")
@@ -262,7 +297,8 @@ class ScribrApp:
     def _groq_snapshot_worker(self, wav_bytes: bytes) -> None:
         try:
             language = self._settings.get("language", "auto")
-            text = self._transcriber.transcribe(wav_bytes, language=language)
+            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
+            text = self._transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
             print(f"[Groq snapshot] Result: {repr(text[:80] if text else text)}")
             if text is not None:
                 display_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
@@ -287,8 +323,9 @@ class ScribrApp:
     def _api_transcribe_worker(self, wav_bytes: bytes) -> None:
         try:
             language = self._settings.get("language", "auto")
+            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
             print(f"[App] Transcribing {len(wav_bytes)} bytes (lang={language})...")
-            text = self._transcriber.transcribe(wav_bytes, language=language)
+            text = self._transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
             print(f"[App] Transcription result: {repr(text[:100] if text else text)}")
             if text:
                 text = self._maybe_correct(text)
@@ -315,7 +352,8 @@ class ScribrApp:
     def _local_transcribe_worker(self, wav_bytes: bytes) -> None:
         try:
             language = self._settings.get("language", "auto")
-            text = self._local_transcriber.transcribe(wav_bytes, language=language)
+            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
+            text = self._local_transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
             if text:
                 text = self._maybe_correct(text)
                 final_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
@@ -334,7 +372,10 @@ class ScribrApp:
         """Run AI cleanup if enabled. Returns uncorrected text on failure."""
         if self._corrector and self._settings.get("ai_cleanup", True):
             try:
-                return self._corrector.clean_text(text)
+                uk = self._settings.get("use_uk_english", False)
+                result = self._corrector.clean_text(text, use_uk_english=uk)
+                self._stats.add_cost(0.0005)
+                return result
             except CorrectionError as e:
                 print(f"[Corrector] {e}")
         return text
@@ -358,10 +399,12 @@ class ScribrApp:
     def _ai_format_worker(self, text: str) -> None:
         try:
             style = self._settings.get("ai_format_style", "structured")
+            uk = self._settings.get("use_uk_english", False)
             print(f"[App] AI Formatting ({style}) {len(text)} chars...")
-            result = self._corrector.format_for_llm(text, style=style)
+            result = self._corrector.format_for_llm(text, style=style, use_uk_english=uk)
             if result:
                 print(f"[App] AI Format result: {repr(result[:80])}")
+                self._stats.add_cost(0.0005)
                 self._history.update_ai_text(text, result)
                 self._bridge.ai_format_completed.emit(result)
             else:
@@ -374,6 +417,28 @@ class ScribrApp:
     #  FINAL RESULT (main thread)
     # ─────────────────────────────────────────────────────
 
+    def _on_ai_format_completed(self, text: str) -> None:
+        print(f"[App] AI format completed, pending_paste={self._pending_paste_context}")
+        self._overlay.on_ai_format_completed(text)
+
+        # Auto-copy exactly as we do for raw transcript
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(text)
+
+        # Use cached context — overlay state may have drifted during AI processing
+        if self._pending_paste_context:
+            self._pending_paste_context = False
+            def _do_paste():
+                self._keyboard.press(Key.cmd)
+                self._keyboard.press('v')
+                self._keyboard.release('v')
+                self._keyboard.release(Key.cmd)
+                print("[App] Auto-pasted AI text via Cmd+V")
+                self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
+
+            QTimer.singleShot(50, _do_paste)
+
     def _on_final_transcript(self, text: str) -> None:
         print(f"[App] Final transcript → overlay: {repr(text[:80])}")
 
@@ -383,18 +448,39 @@ class ScribrApp:
             clipboard.setText(text)
             print("[App] Copied to clipboard")
 
+        # Cache typing context BEFORE transitioning — overlay state may drift
+        # during AI processing (focus timer, state transitions, etc.)
+        is_typing = self._overlay.is_typing_context
+        is_ai = self._overlay._ai_mode_active
+        self._pending_paste_context = is_typing and is_ai
+        print(f"[App] Context cache: typing={is_typing} ai={is_ai} pending_paste={self._pending_paste_context}")
+
         # Add to history
         self._history.add(text, duration_s=self._total_duration)
         self._menubar.refresh_after_transcription()
 
-        # Transition to result — overlay uses its tracked _ai_mode_active state
-        # (which may have been toggled by the user during recording)
+        # ALWAYS transition to notepad first so we unroll and evaluate AI states
         self._overlay.transition_to(
             OverlayState.RESULT_NOTEPAD,
             text=text,
             duration=self._total_duration,
             ai_show_original=self._settings.get("ai_show_original", False),
         )
+
+        # If in a typing context AND we are not doing AI formatting, paste immediately
+        if is_typing and not is_ai:
+            def _do_paste():
+                # Simulate Cmd+V (macOS) to paste clipboard contents
+                self._keyboard.press(Key.cmd)
+                self._keyboard.press('v')
+                self._keyboard.release('v')
+                self._keyboard.release(Key.cmd)
+                print("[App] Auto-pasted raw text via Cmd+V")
+                self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
+
+            # Small delay to ensure clipboard is populated before pasting
+            QTimer.singleShot(50, _do_paste)
+
         self._menubar.set_idle()
         print(f"[App] Overlay state: {self._overlay.state}")
 
@@ -427,7 +513,11 @@ class ScribrApp:
 
     def _on_history_clicked(self, entry: dict) -> None:
         print(f"[App] History item clicked: {entry.get('text', '')[:20]}...")
-        self._overlay.transition_to(OverlayState.RESULT_NOTEPAD, history_entry=entry)
+        self._overlay.transition_to(
+            OverlayState.RESULT_NOTEPAD,
+            history_entry=entry,
+            ai_show_original=self._settings.get("ai_show_original", False),
+        )
         self._menubar.set_idle()
 
     # ─────────────────────────────────────────────────────
@@ -436,7 +526,7 @@ class ScribrApp:
 
     def _show_settings_window(self) -> None:
         if self._settings_window is None or not self._settings_window.isVisible():
-            self._settings_window = SettingsWindow(self._settings)
+            self._settings_window = SettingsWindow(self._settings, self._stats)
             self._settings_window.settings_saved.connect(self._on_settings_saved)
         self._settings_window.show()
         self._settings_window.raise_()
@@ -452,6 +542,14 @@ class ScribrApp:
     def _on_settings_saved(self) -> None:
         self._settings.load()
         self._rebuild_transcriber()
+
+        # Swap hotkey target (no listener restart — avoids macOS CGEvent tap race)
+        self._hotkey.set_key(self._settings.get("hotkey", "alt_r"))
+
+        # Update overlay position
+        self._overlay.set_position(
+            self._settings.get("overlay_position", "bottom_centre")
+        )
 
     # ─────────────────────────────────────────────────────
     #  THEME
