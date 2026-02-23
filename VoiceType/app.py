@@ -1,19 +1,54 @@
-# app.py — Scribr entry point. Everything runs in Qt's main thread.
-# QSystemTrayIcon for menubar — no thread conflicts.
+# app.py — Scribr entry point.
+# Wires together: hotkey → recorder → transcriber → corrector → clipboard → overlay.
 
 from __future__ import annotations
 
 import sys
+import traceback
+import threading
+import time
 
+
+def _global_exception_handler(exc_type, exc_value, exc_tb):
+    """Print tracebacks instead of letting PyQt6 call qFatal → abort."""
+    print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
+          file=sys.stderr, flush=True)
+
+
+sys.excepthook = _global_exception_handler
+
+from corrector import Corrector, CorrectionError
 from history import HistoryManager
+from hotkey import HotkeyListener
 from menubar import ScribrMenubar
-from PyQt6.QtWidgets import QApplication
+from overlay import OverlayState, OverlayWindow
+from context_detector import is_text_field_focused
+from recorder import Recorder
 from settings import SettingsManager
 from settings_window import SettingsWindow
+from transcriber import (
+    GroqTranscriber,
+    LocalTranscriber,
+    OpenAITranscriber,
+    TranscriptionError,
+)
+
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtWidgets import QApplication
+
+
+class _ThreadBridge(QObject):
+    """Signals for marshalling background-thread results to the main thread."""
+
+    final_transcript = pyqtSignal(str)
+    live_transcript = pyqtSignal(str)
+    transcription_error = pyqtSignal()
+    ai_format_completed = pyqtSignal(str)
+    ai_format_failed = pyqtSignal()
 
 
 class ScribrApp:
-    """Wires together: menubar, settings window, overlay, and future modules."""
+    """Coordinates all Scribr modules."""
 
     def __init__(self) -> None:
         self._qt_app = QApplication(sys.argv)
@@ -21,29 +56,408 @@ class ScribrApp:
         self._settings = SettingsManager()
         self._history = HistoryManager()
 
-        # ── Settings window (created on demand) ──
+        # ── Settings window (lazy) ──
         self._settings_window: SettingsWindow | None = None
 
-        # ── Menubar ──────────────────────────────────────
+        # ── Overlay ──
+        self._overlay = OverlayWindow()
+
+        # ── Menubar ──
         self._menubar = ScribrMenubar(history=self._history)
         self._menubar.open_settings.connect(self._show_settings_window)
         self._menubar.record_toggled.connect(self._on_record_toggle)
         self._menubar.test_mic.connect(self._on_test_mic)
+        self._menubar.history_clicked.connect(self._on_history_clicked)
         self._menubar.show()
+
+        # ── Recorder ──
+        self._recorder = Recorder(on_device_error=self._on_device_error)
+
+        # ── Hotkey ──
+        self._hotkey = HotkeyListener(
+            on_press=self._on_hotkey_press,
+            on_release=self._on_hotkey_release,
+            on_permission_error=self._on_permission_error,
+        )
+        self._hotkey.start()
+
+        # ── Transcriber / corrector (built from settings) ──
+        self._transcriber: GroqTranscriber | OpenAITranscriber | None = None
+        self._local_transcriber: LocalTranscriber | None = None
+        self._corrector: Corrector | None = None
+        self._rebuild_transcriber()
+
+        print(f"[App] Transcriber: {type(self._transcriber).__name__ if self._transcriber else 'None'}")
+        print(f"[App] Local transcriber: {self._local_transcriber is not None}")
+        print(f"[App] Corrector: {self._corrector is not None}")
+
+        # ── Thread bridge (signals for bg thread → main thread) ──
+        self._bridge = _ThreadBridge()
+        self._bridge.final_transcript.connect(self._on_final_transcript)
+        self._bridge.live_transcript.connect(self._overlay.update_transcript)
+        self._bridge.transcription_error.connect(self._on_transcription_error)
+        self._bridge.ai_format_completed.connect(self._overlay.on_ai_format_completed)
+        self._bridge.ai_format_failed.connect(self._overlay.on_ai_format_failed)
+
+        # Connect overlay's request signal
+        self._overlay.request_ai_format.connect(self._on_ai_format_requested)
+        self._overlay.ai_mode_toggled.connect(self._history.update_ai_mode)
+
+        # ── Groq live transcription timer ──
+        self._groq_timer = QTimer()
+        self._groq_timer.timeout.connect(self._on_groq_tick)
+        self._groq_pending = False
+
+        # ── State ──
+        self._is_recording = False
+        self._is_continuing = False
+        self._previous_text = ""
+        self._recording_start: float = 0.0
+        self._total_duration: float = 0.0
 
         # ── Watch for system theme changes ──
         self._watch_appearance_changes()
 
-    def run(self) -> None:
-        """Run Qt event loop."""
-        sys.exit(self._qt_app.exec())
+    # ─────────────────────────────────────────────────────
+    #  PROVIDER SETUP
+    # ─────────────────────────────────────────────────────
+
+    def _rebuild_transcriber(self) -> None:
+        """Create transcriber + corrector from current settings."""
+        s = self._settings
+        mode = s.get("transcription_mode", "api")
+
+        if mode == "local":
+            model_size = s.get("local_model_size", "base")
+            self._transcriber = None
+            if (
+                self._local_transcriber is None
+                or self._local_transcriber._model_size != model_size
+            ):
+                self._local_transcriber = LocalTranscriber(model_size=model_size)
+                threading.Thread(
+                    target=self._local_transcriber.load_model,
+                    daemon=True,
+                ).start()
+        else:
+            # API mode: prefer Groq (live capable), fall back to OpenAI
+            groq_key = s.get("groq_api_key", "")
+            openai_key = s.get("openai_api_key", "")
+
+            if groq_key:
+                self._transcriber = GroqTranscriber(api_key=groq_key)
+            elif openai_key:
+                self._transcriber = OpenAITranscriber(api_key=openai_key)
+            else:
+                self._transcriber = None
+
+        # Corrector uses OpenAI key — needed for both ai_cleanup and AI format mode
+        openai_key = s.get("openai_api_key", "")
+        if openai_key:
+            self._corrector = Corrector(api_key=openai_key)
+        else:
+            self._corrector = None
 
     # ─────────────────────────────────────────────────────
-    #  THEME CHANGE OBSERVER
+    #  HOTKEY CALLBACKS (pynput background thread → Qt main thread)
+    # ─────────────────────────────────────────────────────
+
+    def _on_hotkey_press(self) -> None:
+        print("[Hotkey] Right Option PRESSED")
+        QTimer.singleShot(0, self._start_recording)
+
+    def _on_hotkey_release(self) -> None:
+        print("[Hotkey] Right Option RELEASED")
+        QTimer.singleShot(0, self._stop_recording)
+
+    # ─────────────────────────────────────────────────────
+    #  RECORDING START / STOP (main thread)
+    # ─────────────────────────────────────────────────────
+
+    def _start_recording(self) -> None:
+        if self._is_recording:
+            return
+            
+        if self._overlay.state == OverlayState.RESULT_NOTEPAD:
+            self._is_continuing = True
+            self._previous_text = self._overlay.get_notepad_text()
+        else:
+            self._is_continuing = False
+            self._previous_text = ""
+            self._total_duration = 0.0
+            
+        self._is_recording = True
+        self._recording_start = time.time()
+
+        print("[App] Starting recording...")
+        self._overlay.set_is_typing_context(is_text_field_focused())
+        self._overlay.set_ai_mode(
+            active=self._settings.get("ai_mode_default", False),
+            show_original=self._settings.get("ai_show_original", False),
+        )
+        self._overlay.transition_to(OverlayState.RECORDING, is_continuing=self._is_continuing)
+        self._menubar.set_recording(True)
+
+        self._recorder.start(on_rms_update=self._overlay.update_rms)
+        print(f"[App] Recorder started (is_recording={self._recorder.is_recording})")
+
+        # If using Groq, start the live transcription timer
+        if isinstance(self._transcriber, GroqTranscriber):
+            interval_s = self._settings.get("groq_live_interval", 2)
+            self._groq_timer.setInterval(interval_s * 1000)
+            self._groq_pending = False
+            self._groq_timer.start()
+            print(f"[App] Groq live timer started (every {interval_s}s)")
+
+    def _stop_recording(self) -> None:
+        if not self._is_recording:
+            return
+        self._is_recording = False
+
+        self._groq_timer.stop()
+        wav_bytes = self._recorder.stop()
+        duration = time.time() - self._recording_start
+        self._total_duration += duration
+        print(f"[App] Stopped recording ({duration:.1f}s, total={self._total_duration:.1f}s, {len(wav_bytes)} bytes)")
+        print(f"[App] Transcriber: {type(self._transcriber).__name__ if self._transcriber else 'None'}")
+        print(f"[App] Local transcriber: {self._local_transcriber is not None}")
+        self._menubar.set_transcribing()
+
+        if isinstance(self._transcriber, GroqTranscriber):
+            # Groq: final transcription of full buffer
+            self._transcribe_in_background(wav_bytes)
+        elif isinstance(self._transcriber, OpenAITranscriber):
+            # OpenAI: single transcription after release
+            self._overlay.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
+            self._transcribe_in_background(wav_bytes)
+        elif self._local_transcriber is not None:
+            # Local Whisper: run inference after release
+            self._overlay.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
+            self._transcribe_local_in_background(wav_bytes)
+        else:
+            # No transcriber configured
+            self._overlay.transition_to(OverlayState.IDLE)
+            self._menubar.set_idle()
+
+    # ─────────────────────────────────────────────────────
+    #  GROQ LIVE TRANSCRIPTION (timer-based snapshots)
+    # ─────────────────────────────────────────────────────
+
+    def _on_groq_tick(self) -> None:
+        print(f"[Groq tick] recording={self._is_recording} pending={self._groq_pending}")
+        if not self._is_recording or self._groq_pending:
+            return
+        wav_snapshot = self._recorder.get_wav_snapshot()
+        if not wav_snapshot or len(wav_snapshot) < 100:
+            print(f"[Groq tick] Snapshot too small ({len(wav_snapshot) if wav_snapshot else 0} bytes)")
+            return
+        print(f"[Groq tick] Sending {len(wav_snapshot)} bytes to Groq...")
+        self._groq_pending = True
+        threading.Thread(
+            target=self._groq_snapshot_worker,
+            args=(wav_snapshot,),
+            daemon=True,
+        ).start()
+
+    def _groq_snapshot_worker(self, wav_bytes: bytes) -> None:
+        try:
+            language = self._settings.get("language", "auto")
+            text = self._transcriber.transcribe(wav_bytes, language=language)
+            print(f"[Groq snapshot] Result: {repr(text[:80] if text else text)}")
+            if text is not None:
+                display_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
+                if display_text:
+                    self._bridge.live_transcript.emit(display_text)
+        except TranscriptionError as e:
+            print(f"[Groq snapshot] ERROR: {e}")
+        finally:
+            self._groq_pending = False
+
+    # ─────────────────────────────────────────────────────
+    #  API TRANSCRIPTION (background thread)
+    # ─────────────────────────────────────────────────────
+
+    def _transcribe_in_background(self, wav_bytes: bytes) -> None:
+        threading.Thread(
+            target=self._api_transcribe_worker,
+            args=(wav_bytes,),
+            daemon=True,
+        ).start()
+
+    def _api_transcribe_worker(self, wav_bytes: bytes) -> None:
+        try:
+            language = self._settings.get("language", "auto")
+            print(f"[App] Transcribing {len(wav_bytes)} bytes (lang={language})...")
+            text = self._transcriber.transcribe(wav_bytes, language=language)
+            print(f"[App] Transcription result: {repr(text[:100] if text else text)}")
+            if text:
+                text = self._maybe_correct(text)
+                final_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
+                self._bridge.final_transcript.emit(final_text)
+            else:
+                print("[App] Empty transcription result")
+                self._bridge.transcription_error.emit()
+        except TranscriptionError as e:
+            print(f"[Transcriber] {e}")
+            self._bridge.transcription_error.emit()
+
+    # ─────────────────────────────────────────────────────
+    #  LOCAL TRANSCRIPTION (background thread)
+    # ─────────────────────────────────────────────────────
+
+    def _transcribe_local_in_background(self, wav_bytes: bytes) -> None:
+        threading.Thread(
+            target=self._local_transcribe_worker,
+            args=(wav_bytes,),
+            daemon=True,
+        ).start()
+
+    def _local_transcribe_worker(self, wav_bytes: bytes) -> None:
+        try:
+            language = self._settings.get("language", "auto")
+            text = self._local_transcriber.transcribe(wav_bytes, language=language)
+            if text:
+                text = self._maybe_correct(text)
+                final_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
+                self._bridge.final_transcript.emit(final_text)
+            else:
+                self._bridge.transcription_error.emit()
+        except TranscriptionError as e:
+            print(f"[Local transcriber] {e}")
+            self._bridge.transcription_error.emit()
+
+    # ─────────────────────────────────────────────────────
+    #  TEXT CORRECTION (called in background thread)
+    # ─────────────────────────────────────────────────────
+
+    def _maybe_correct(self, text: str) -> str:
+        """Run AI cleanup if enabled. Returns uncorrected text on failure."""
+        if self._corrector and self._settings.get("ai_cleanup", True):
+            try:
+                return self._corrector.clean_text(text)
+            except CorrectionError as e:
+                print(f"[Corrector] {e}")
+        return text
+
+    # ─────────────────────────────────────────────────────
+    #  AI FORMATTING (background thread)
+    # ─────────────────────────────────────────────────────
+
+    def _on_ai_format_requested(self, text: str) -> None:
+        if not self._corrector:
+            print("[App] AI Format requested but no corrector initialized.")
+            self._bridge.ai_format_failed.emit()
+            return
+
+        threading.Thread(
+            target=self._ai_format_worker,
+            args=(text,),
+            daemon=True,
+        ).start()
+
+    def _ai_format_worker(self, text: str) -> None:
+        try:
+            style = self._settings.get("ai_format_style", "structured")
+            print(f"[App] AI Formatting ({style}) {len(text)} chars...")
+            result = self._corrector.format_for_llm(text, style=style)
+            if result:
+                print(f"[App] AI Format result: {repr(result[:80])}")
+                self._history.update_ai_text(text, result)
+                self._bridge.ai_format_completed.emit(result)
+            else:
+                self._bridge.ai_format_failed.emit()
+        except CorrectionError as e:
+            print(f"[Corrector] Format error: {e}")
+            self._bridge.ai_format_failed.emit()
+
+    # ─────────────────────────────────────────────────────
+    #  FINAL RESULT (main thread)
+    # ─────────────────────────────────────────────────────
+
+    def _on_final_transcript(self, text: str) -> None:
+        print(f"[App] Final transcript → overlay: {repr(text[:80])}")
+
+        # Auto-copy to clipboard
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(text)
+            print("[App] Copied to clipboard")
+
+        # Add to history
+        self._history.add(text, duration_s=self._total_duration)
+        self._menubar.refresh_after_transcription()
+
+        # Transition to result — overlay uses its tracked _ai_mode_active state
+        # (which may have been toggled by the user during recording)
+        self._overlay.transition_to(
+            OverlayState.RESULT_NOTEPAD,
+            text=text,
+            duration=self._total_duration,
+            ai_show_original=self._settings.get("ai_show_original", False),
+        )
+        self._menubar.set_idle()
+        print(f"[App] Overlay state: {self._overlay.state}")
+
+    def _on_transcription_error(self) -> None:
+        self._overlay.transition_to(OverlayState.IDLE)
+        self._menubar.set_idle()
+
+    def _on_device_error(self, msg: str) -> None:
+        print(f"[Device error] {msg}")
+        self._is_recording = False
+        self._overlay.transition_to(OverlayState.IDLE)
+        self._menubar.set_idle()
+
+    def _on_permission_error(self, msg: str) -> None:
+        print(f"[Permission error] {msg}")
+
+    # ─────────────────────────────────────────────────────
+    #  MENUBAR CALLBACKS
+    # ─────────────────────────────────────────────────────
+
+    def _on_record_toggle(self, recording: bool) -> None:
+        if recording:
+            self._start_recording()
+        else:
+            self._stop_recording()
+
+    def _on_test_mic(self) -> None:
+        self._start_recording()
+        QTimer.singleShot(2000, self._stop_recording)
+
+    def _on_history_clicked(self, entry: dict) -> None:
+        print(f"[App] History item clicked: {entry.get('text', '')[:20]}...")
+        self._overlay.transition_to(OverlayState.RESULT_NOTEPAD, history_entry=entry)
+        self._menubar.set_idle()
+
+    # ─────────────────────────────────────────────────────
+    #  SETTINGS
+    # ─────────────────────────────────────────────────────
+
+    def _show_settings_window(self) -> None:
+        if self._settings_window is None or not self._settings_window.isVisible():
+            self._settings_window = SettingsWindow(self._settings)
+            self._settings_window.settings_saved.connect(self._on_settings_saved)
+        self._settings_window.show()
+        self._settings_window.raise_()
+        self._settings_window.activateWindow()
+
+        screen = self._qt_app.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            x = (geo.width() - self._settings_window.width()) // 2 + geo.x()
+            y = (geo.height() - self._settings_window.height()) // 3 + geo.y()
+            self._settings_window.move(x, y)
+
+    def _on_settings_saved(self) -> None:
+        self._settings.load()
+        self._rebuild_transcriber()
+
+    # ─────────────────────────────────────────────────────
+    #  THEME
     # ─────────────────────────────────────────────────────
 
     def _watch_appearance_changes(self) -> None:
-        """Observe macOS appearance changes to refresh themed components."""
         try:
             from Foundation import (  # type: ignore[import-untyped]
                 NSDistributedNotificationCenter,
@@ -60,45 +474,11 @@ class ScribrApp:
             pass
 
     def _on_theme_changed(self) -> None:
-        """Called when macOS appearance changes."""
         if self._settings_window and self._settings_window.isVisible():
             self._settings_window.update()
 
-    # ─────────────────────────────────────────────────────
-    #  SETTINGS WINDOW
-    # ─────────────────────────────────────────────────────
-
-    def _show_settings_window(self) -> None:
-        if self._settings_window is None or not self._settings_window.isVisible():
-            self._settings_window = SettingsWindow(self._settings)
-            self._settings_window.settings_saved.connect(self._on_settings_saved)
-        self._settings_window.show()
-        self._settings_window.raise_()
-        self._settings_window.activateWindow()
-
-        # Centre on screen
-        screen = self._qt_app.primaryScreen()
-        if screen:
-            geo = screen.availableGeometry()
-            x = (geo.width() - self._settings_window.width()) // 2 + geo.x()
-            y = (geo.height() - self._settings_window.height()) // 3 + geo.y()
-            self._settings_window.move(x, y)
-
-    def _on_settings_saved(self) -> None:
-        """Re-read settings after save."""
-        self._settings.load()
-
-    # ─────────────────────────────────────────────────────
-    #  RECORDING (placeholder — will wire to recorder/transcriber)
-    # ─────────────────────────────────────────────────────
-
-    def _on_record_toggle(self, recording: bool) -> None:
-        """Called from menubar record button."""
-        pass  # TODO: wire to recorder.Recorder + transcriber
-
-    def _on_test_mic(self) -> None:
-        """Called from menubar test microphone."""
-        pass  # TODO: wire to recorder.Recorder test mode
+    def run(self) -> None:
+        sys.exit(self._qt_app.exec())
 
 
 def main() -> None:

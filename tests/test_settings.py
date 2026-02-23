@@ -22,6 +22,10 @@ class TestAppSettings:
         assert s.transcription_mode == "api"
         assert s.ai_cleanup is True
         assert s.reduce_motion is False
+        assert s.groq_live_interval == 2
+        # Removed providers should not exist
+        assert not hasattr(s, "deepgram_api_key")
+        assert not hasattr(s, "assemblyai_api_key")
 
     def test_to_dict_roundtrip(self) -> None:
         s = AppSettings(openai_api_key="sk-test", language="fr")
@@ -34,6 +38,17 @@ class TestAppSettings:
         s = AppSettings.from_dict(data)
         assert s.openai_api_key == "sk-x"
         assert not hasattr(s, "unknown_key")
+
+    def test_from_dict_ignores_removed_provider_keys(self) -> None:
+        """Old JSON files with deepgram/assemblyai keys should load fine."""
+        data = {
+            "openai_api_key": "sk-x",
+            "deepgram_api_key": "old_key",
+            "assemblyai_api_key": "old_key",
+        }
+        s = AppSettings.from_dict(data)
+        assert s.openai_api_key == "sk-x"
+        assert not hasattr(s, "deepgram_api_key")
 
     def test_from_dict_uses_defaults_for_missing(self) -> None:
         s = AppSettings.from_dict({"language": "fr"})

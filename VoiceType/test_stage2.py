@@ -49,24 +49,28 @@ def main():
     rms_timer = QTimer()
     rms_timer.timeout.connect(send_rms)
 
+    # Disable the focus timer so click-away dismiss doesn't interfere
+    # with the visual test (no window is "active" in test context).
+    overlay._focus_timer.stop()
+    overlay._focus_timer.setInterval(999999)
+
     # ── State sequence ──────────────────────────────────────
     #
-    #  0.0s  IDLE            — pill visible, dimmed "Hold Right ⌥ to record"
-    #  2.0s  RECORDING       — red dot + waveform + timer, 8s of simulated RMS
-    #  5.0s  transcript #1   — triggers LIVE_TRANSCRIBING, notepad drops down
-    #  7.0s  transcript #2   — notepad updates
-    #  9.0s  transcript #3   — notepad updates
-    # 11.0s  RESULT_NOTEPAD  — blue dot "Tap to edit" + notepad with final text
-    # 15.0s  RESULT_FIELD    — green dot "Typed into field", auto-dismisses
-    # 18.0s  Back to IDLE
+    #  0.0s  RECORDING       — red dot + waveform + timer (IDLE is hidden)
+    #  3.0s  transcript #1   — triggers LIVE_TRANSCRIBING, notepad drops down
+    #  5.0s  transcript #2   — notepad updates
+    #  7.0s  transcript #3   — notepad updates
+    #  9.0s  RESULT_NOTEPAD  — blue dot "Tap to edit" + notepad with final text
+    # 13.0s  RESULT_FIELD    — green dot "Typed into field", auto-dismisses
+    # 16.0s  Back to IDLE (hidden)
 
     def start_sequence():
-        # ── IDLE (already visible from OverlayWindow init) ─────
-        print("[Test] -> IDLE state (2 seconds)")
+        # ── Skip IDLE (hidden) — go straight to RECORDING ─────
+        print("[Test] -> IDLE state is now hidden (overlay.hide())")
         overlay.transition_to(OverlayState.IDLE)
 
         def to_recording():
-            print("[Test] -> RECORDING state (9 seconds with simulated RMS)")
+            print("[Test] -> RECORDING state (6 seconds with simulated RMS)")
             overlay.transition_to(OverlayState.RECORDING)
             rms_timer.start(33)  # ~30fps
 
@@ -96,18 +100,18 @@ def main():
             overlay.transition_to(OverlayState.RESULT_FIELD)
 
         def back_to_idle():
-            print("[Test] -> Back to IDLE")
+            print("[Test] -> Back to IDLE (window hides)")
             overlay.transition_to(OverlayState.IDLE)
-            print("\n[Test] Sequence complete. Window is open for inspection.")
-            print("       Close the window or press Ctrl+C to exit.")
+            print("\n[Test] Sequence complete. Overlay is hidden (IDLE).")
+            print("       Press Ctrl+C to exit.")
 
-        QTimer.singleShot(2000, to_recording)
-        QTimer.singleShot(5000, transcript_chunk_1)
-        QTimer.singleShot(7000, transcript_chunk_2)
-        QTimer.singleShot(9000, transcript_chunk_3)
-        QTimer.singleShot(11000, to_result_notepad)
-        QTimer.singleShot(15000, to_result_field)
-        QTimer.singleShot(18000, back_to_idle)
+        QTimer.singleShot(500, to_recording)
+        QTimer.singleShot(3000, transcript_chunk_1)
+        QTimer.singleShot(5000, transcript_chunk_2)
+        QTimer.singleShot(7000, transcript_chunk_3)
+        QTimer.singleShot(9000, to_result_notepad)
+        QTimer.singleShot(13000, to_result_field)
+        QTimer.singleShot(16000, back_to_idle)
 
     # Start after a brief delay to let the event loop settle
     QTimer.singleShot(500, start_sequence)

@@ -77,6 +77,7 @@ class ScribrMenubar(QObject):
     record_toggled = pyqtSignal(bool)
     open_settings = pyqtSignal()
     test_mic = pyqtSignal()
+    history_clicked = pyqtSignal(dict)
 
     def __init__(
         self, history: HistoryManager | None = None, parent: QObject | None = None
@@ -191,16 +192,16 @@ class ScribrMenubar(QObject):
             if empty:
                 empty.setEnabled(False)
         else:
-            count = self._history.count()
-            self._history_menu.setTitle(
-                f"\U0001f4cb  History ({count} clip{'s' if count != 1 else ''})"
-            )
+            self._history_menu.setTitle("\U0001f4cb  History")
             for entry in items:
                 text = str(entry.get("text", ""))
                 truncated = (text[:42] + "\u2026") if len(text) > 45 else text
                 action = self._history_menu.addAction(truncated)
                 if action:
-                    action.setEnabled(False)
+                    action.triggered.connect(lambda checked=False, e=entry: self._on_history_clicked(e))
+
+    def _on_history_clicked(self, entry: dict) -> None:
+        self.history_clicked.emit(entry)
 
     def refresh_after_transcription(self) -> None:
         """Call after a new transcription is added to history."""

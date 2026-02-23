@@ -10,7 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt6.QtGui import QColor, QFont
+from pathlib import Path
+
+from PyQt6.QtCore import QEasingCurve
+from PyQt6.QtGui import QColor, QFont, QFontDatabase
 
 # ════════════════════════════════════════════════════════════
 #  THEME DATACLASS
@@ -47,6 +50,12 @@ class Theme:
     green_dim: QColor
     amber: QColor
 
+    # AI Mode
+    ai: QColor
+    ai_soft: QColor
+    ai_border: QColor
+    ai_shimmer: QColor
+
 
 # ── Light mode ─────────────────────────────────────────────
 
@@ -67,6 +76,10 @@ _LIGHT = Theme(
     green=QColor(71, 184, 129),         # #47B881
     green_dim=QColor(71, 184, 129, 31),   # rgba(71,184,129,0.12)
     amber=QColor(192, 122, 26),         # #C07A1A
+    ai=QColor(124, 92, 252),            # #7C5CFC
+    ai_soft=QColor(124, 92, 252, 25),     # rgba(124,92,252,0.10)
+    ai_border=QColor(124, 92, 252, 56),   # rgba(124,92,252,0.22)
+    ai_shimmer=QColor(124, 92, 252, 31),  # rgba(124,92,252,0.12)
 )
 
 # ── Dark mode ──────────────────────────────────────────────
@@ -88,6 +101,10 @@ _DARK = Theme(
     green=QColor(42, 157, 92),          # #2A9D5C
     green_dim=QColor(42, 157, 92, 31),    # rgba(42,157,92,0.12)
     amber=QColor(192, 122, 26),         # #C07A1A
+    ai=QColor(155, 130, 255),           # #9B82FF
+    ai_soft=QColor(155, 130, 255, 31),    # rgba(155,130,255,0.12)
+    ai_border=QColor(155, 130, 255, 64),  # rgba(155,130,255,0.25)
+    ai_shimmer=QColor(155, 130, 255, 38), # rgba(155,130,255,0.15)
 )
 
 
@@ -112,16 +129,45 @@ def theme() -> Theme:
     return _DARK if _is_dark_mode() else _LIGHT
 
 
+def should_reduce_motion() -> bool:
+    """Check macOS accessibility setting for reduce-motion preference."""
+    try:
+        from AppKit import NSWorkspace  # type: ignore[import-untyped]
+
+        if NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion():
+            return True
+    except Exception:
+        pass
+    return False
+
+
 # ════════════════════════════════════════════════════════════
 #  TYPOGRAPHY
 # ════════════════════════════════════════════════════════════
 
+_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
+_fonts_loaded = False
+
+
+def load_fonts() -> None:
+    """Load bundled Lora + Plus Jakarta Sans from assets/fonts/.
+
+    Call once after QApplication is created.
+    """
+    global _fonts_loaded
+    if _fonts_loaded:
+        return
+    _fonts_loaded = True
+    for ttf in _FONTS_DIR.glob("*.ttf"):
+        font_id = QFontDatabase.addApplicationFont(str(ttf))
+        if font_id < 0:
+            print(f"[style] WARNING: Failed to load font {ttf.name}")
+
 
 def font_serif(size: int, weight: int = 400, italic: bool = False) -> QFont:
     """Lora — headings, transcript text, subheadings."""
+    load_fonts()
     f = QFont("Lora")
-    if not f.exactMatch():
-        f = QFont("Georgia")
     f.setPixelSize(size)
     if weight >= 600:
         f.setWeight(QFont.Weight.DemiBold)
@@ -135,11 +181,8 @@ def font_serif(size: int, weight: int = 400, italic: bool = False) -> QFont:
 
 def font_sans(size: int, weight: int = 400) -> QFont:
     """Plus Jakarta Sans — UI labels, buttons, inputs."""
+    load_fonts()
     f = QFont("Plus Jakarta Sans")
-    if not f.exactMatch():
-        f = QFont("Inter")
-    if not f.exactMatch():
-        f = QFont("Helvetica Neue")
     f.setPixelSize(size)
     if weight >= 600:
         f.setWeight(QFont.Weight.DemiBold)
@@ -181,11 +224,25 @@ ANIM_EXIT = 280
 ANIM_EXPAND = 380
 ANIM_FAST = 180
 
+# ── Named easing curves ─────────────────────────
+EASE_SPRING = QEasingCurve.Type.OutBack      # overshoot for entrances
+EASE_SETTLE = QEasingCurve.Type.OutCubic     # smooth deceleration
+EASE_LIFT = QEasingCurve.Type.InCubic        # accelerating exits
+EASE_SNAP = QEasingCurve.Type.OutElastic     # small elastic snap
+
+# ── Physics-based timing tokens ──────────────────
+ANIM_PILL_ENTER = 380
+ANIM_PILL_EXIT = 240
+ANIM_CROSSFADE = 200
+ANIM_NOTEPAD_OPEN = 420
+ANIM_NOTEPAD_CLOSE = 280
+ANIM_WORD_FADE = 180
+
 # ── Layout ───────────────────────────────────────
 PILL_HEIGHT = 40
 PILL_PADDING_H = 18
-NOTEPAD_WIDTH = 340
-CONNECTOR_HEIGHT = 56
+NOTEPAD_WIDTH = 400
+CONNECTOR_HEIGHT = 32
 BOTTOM_MARGIN = 32
 
 # ── Waveform ─────────────────────────────────────

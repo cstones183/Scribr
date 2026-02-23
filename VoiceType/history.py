@@ -54,16 +54,36 @@ class HistoryManager:
         )
         tmp.replace(self._path)
 
-    def add(self, text: str, duration_s: float = 0.0) -> None:
+    def add(self, text: str, duration_s: float = 0.0, ai_mode: bool = False) -> None:
         """Add a transcription to the top of the history list."""
         entry: dict[str, object] = {
             "text": text,
             "duration_s": round(duration_s, 1),
             "timestamp": time.time(),
+            "ai_mode": ai_mode,
         }
         self._items.insert(0, entry)
         self._items = self._items[:MAX_ITEMS]
         self._save()
+
+    def update_ai_text(self, text: str, ai_text: str) -> None:
+        """Find the history item matching `text` and update its ai_text."""
+        target = text.strip()
+        for item in self._items:
+            if str(item.get("text", "")).strip() == target:
+                item["ai_text"] = ai_text
+                item["ai_mode"] = True
+                self._save()
+                break
+
+    def update_ai_mode(self, text: str, ai_mode: bool) -> None:
+        """Update the ai_mode bool flag for a history item."""
+        target = text.strip()
+        for item in self._items:
+            if str(item.get("text", "")).strip() == target:
+                item["ai_mode"] = ai_mode
+                self._save()
+                break
 
     def get_all(self) -> list[dict[str, object]]:
         """Return all history items (newest first)."""

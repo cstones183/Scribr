@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, Qt, pyqtSignal
+from pathlib import Path
+
+from PyQt6.QtCore import QPoint, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -17,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -89,12 +93,13 @@ def _btn_ghost_ss() -> str:
     t = theme()
     return (
         "QPushButton {"
-        "  border-radius: 999px;"
+        "  min-height: 34px;"
+        "  border-radius: 17px;"
         "  background: transparent;"
         f"  border: 1px solid {qcolor_to_rgba(t.border)};"
         f"  color: {qcolor_to_rgba(t.text_mid)};"
         "  font-size: 13px; font-weight: 500;"
-        "  padding: 8px 16px;"
+        "  padding: 0px 16px;"
         "}"
         "QPushButton:hover {"
         f"  background: {qcolor_to_rgba(t.surface_3)};"
@@ -107,13 +112,13 @@ def _btn_save_ss() -> str:
     t = theme()
     return (
         "QPushButton {"
-        "  border-radius: 999px;"
+        "  min-height: 34px;"
+        "  border-radius: 17px;"
         f"  background: {t.red.name()};"
         "  border: none;"
         "  color: white;"
         "  font-size: 13px; font-weight: 600;"
-        "  padding: 8px 22px;"
-        "  letter-spacing: -0.01em;"
+        "  padding: 0px 22px;"
         "}"
         "QPushButton:hover { background: #c44434; }"
     )
@@ -174,12 +179,13 @@ def _badge(text: str, active: bool = True) -> QLabel:
     t = theme()
     lbl = QLabel(text)
     lbl.setFont(font_sans(9, 600))
+    lbl.setFixedHeight(22)
     if active:
         lbl.setStyleSheet(
             f"background: {qcolor_to_rgba(t.red_soft)};"
             f"color: {t.red.name()};"
             f"border: 1px solid {qcolor_to_rgba(t.red_border)};"
-            "border-radius: 999px; padding: 3px 9px;"
+            "border-radius: 11px; padding: 3px 9px;"
             " letter-spacing: 0.1em; text-transform: uppercase;"
         )
     else:
@@ -187,7 +193,7 @@ def _badge(text: str, active: bool = True) -> QLabel:
             f"background: {qcolor_to_rgba(t.surface_2)};"
             f"color: {qcolor_to_rgba(t.text_light)};"
             f"border: 1px solid {qcolor_to_rgba(t.border)};"
-            "border-radius: 999px; padding: 3px 9px;"
+            "border-radius: 11px; padding: 3px 9px;"
             " letter-spacing: 0.1em; text-transform: uppercase;"
         )
     return lbl
@@ -205,6 +211,100 @@ def _section_header(text: str) -> QWidget:
     return row
 
 
+class _CardFrame(QFrame):
+    """Rounded card container matching HTML .row group pattern.
+
+    Usage::
+
+        card = _CardFrame()
+        card.add_row(row_widget_1)
+        card.add_row(row_widget_2)
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # Transparent stylesheet — painting handled in paintEvent
+        self.setStyleSheet("QFrame#cardFrame { background: transparent; border: none; }")
+        self.setObjectName("cardFrame")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(1, 1, 1, 1)  # room for border
+        self._layout.setSpacing(0)
+        self._rows: list[QWidget] = []
+
+    def add_row(self, widget: QWidget) -> None:
+        """Add a row. All rows except the last get a bottom border."""
+        self._rows.append(widget)
+        self._layout.addWidget(widget)
+        self._refresh_borders()
+
+    def paintEvent(self, event: object) -> None:  # type: ignore[override]
+        t = theme()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        r = RADIUS_SM
+
+        # Clip to rounded rect so child backgrounds don't overpaint corners
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(0, 0, w, h), r, r)
+        p.setClipPath(clip)
+
+        # Fill background
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(t.surface)
+        p.drawRect(0, 0, w, h)
+
+        # Draw row separator lines
+        for i, row in enumerate(self._rows[:-1]):
+            y = row.geometry().bottom() + 1
+            p.setPen(QPen(t.border, 1))
+            p.drawLine(0, y, w, y)
+
+        # Outer border
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(t.border, 1))
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), r, r)
+        p.end()
+
+    def _refresh_borders(self) -> None:
+        t = theme()
+        for row in self._rows:
+            row.setStyleSheet(
+                f"background: transparent; border: none;"
+            )
+
+
+def _card_row(
+    title: str,
+    hint_text: str | None = None,
+    right_widget: QWidget | None = None,
+    badge: QLabel | None = None,
+) -> QWidget:
+    """Standard settings row matching HTML .row pattern."""
+    t = theme()
+    row = QWidget()
+    row.setMinimumHeight(52)
+    h = QHBoxLayout(row)
+    h.setContentsMargins(18, 13, 18, 13)
+    h.setSpacing(14)
+
+    info = QWidget()
+    info.setStyleSheet("background: transparent; border: none;")
+    iv = QVBoxLayout(info)
+    iv.setContentsMargins(0, 0, 0, 0)
+    iv.setSpacing(2)
+    iv.addWidget(_field_label(title))
+    if hint_text:
+        iv.addWidget(_hint(hint_text))
+    h.addWidget(info, 1)
+
+    if badge:
+        h.addWidget(badge)
+    if right_widget:
+        h.addWidget(right_widget)
+    return row
+
+
 # ════════════════════════════════════════════════════════════
 #  TAB BUTTON
 # ════════════════════════════════════════════════════════════
@@ -219,7 +319,7 @@ class _TabButton(QPushButton):
         self._label_text = label
         self._active = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(44)
+        self.setFixedHeight(52)
         self._apply_style()
 
     def set_active(self, active: bool) -> None:
@@ -234,7 +334,7 @@ class _TabButton(QPushButton):
                 f"  color: {t.red.name()};"
                 "  background: transparent; border: none;"
                 f"  border-bottom: 2px solid {t.red.name()};"
-                "  padding: 10px 4px 9px;"
+                "  padding: 6px 4px 7px;"
                 "  font-size: 11px; font-weight: 600;"
                 "  letter-spacing: 0.03em;"
                 "}"
@@ -245,7 +345,7 @@ class _TabButton(QPushButton):
                 f"  color: {qcolor_to_rgba(t.text_light)};"
                 "  background: transparent; border: none;"
                 "  border-bottom: 2px solid transparent;"
-                "  padding: 10px 4px 9px;"
+                "  padding: 6px 4px 7px;"
                 "  font-size: 11px; font-weight: 600;"
                 "  letter-spacing: 0.03em;"
                 "}"
@@ -274,6 +374,7 @@ class SettingsWindow(QWidget):
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         self.setFixedWidth(560)
 
         self._drag_pos: QPoint | None = None
@@ -294,14 +395,17 @@ class SettingsWindow(QWidget):
         # ── Stacked body ─────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setStyleSheet("background: transparent; border: none;")
+        self._stack.setMinimumHeight(420)
         self._stack.addWidget(self._build_api_tab())
         self._stack.addWidget(self._build_transcription_tab())
+        self._stack.addWidget(self._build_ai_tab())
         self._stack.addWidget(self._build_appearance_tab())
         self._stack.addWidget(self._build_about_tab())
         root.addWidget(self._stack, 1)
 
         # ── Footer ───────────────────────────────────────
-        root.addWidget(self._build_footer())
+        self._footer = self._build_footer()
+        root.addWidget(self._footer)
 
         # ── Toast overlay ────────────────────────────────
         self._toast = ToastWidget(self)
@@ -323,20 +427,46 @@ class SettingsWindow(QWidget):
         w, h = self.width(), self.height()
         r = RADIUS_CARD
 
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, w, h, r, r)
-        p.setClipPath(path)
+        # Clip everything to the rounded window shape (antialiased)
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(0, 0, w, h), r, r)
+        p.setClipPath(clip)
 
-        # Solid surface fill
+        # Body fill (surface colour covers the whole window)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(t.surface)
-        p.drawPath(path)
+        p.drawRect(0, 0, w, h)
 
-        # Border
+        # Titlebar background (surface_2) — fills top area including corners
+        tb = self._titlebar.geometry()
+        p.setBrush(t.surface_2)
+        p.drawRect(0, 0, w, tb.bottom() + 1)
+
+        # Tab bar background (surface_2)
+        tab = self._tab_bar_widget.geometry()
+        p.drawRect(0, tab.y(), w, tab.height())
+
+        # Footer background (surface_2)
+        ft = self._footer.geometry()
+        p.setBrush(t.surface_2)
+        p.drawRect(0, ft.y(), w, h - ft.y())
+
+        # Separator lines
         p.setPen(QPen(t.border, 1))
+        p.drawLine(0, tb.bottom(), w, tb.bottom())          # below titlebar
+        p.drawLine(0, tab.bottom(), w, tab.bottom())         # below tab bar
+        p.drawLine(0, ft.y(), w, ft.y())                     # above footer
+
+        # Outer border (drawn last, on top of everything)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRoundedRect(0, 0, w, h, r, r)
+        p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), r, r)
         p.end()
+
+    def resizeEvent(self, event: object) -> None:  # type: ignore[override]
+        super().resizeEvent(event)  # type: ignore[arg-type]
+        # WA_TranslucentBackground makes unpainted areas transparent and
+        # click-through on macOS, so no QRegion mask is needed.
+        # (QRegion is pixel-based and creates jagged corners.)
 
     # ─────────────────────────────────────────────────────
     #  TITLEBAR
@@ -346,27 +476,21 @@ class SettingsWindow(QWidget):
         t = theme()
         bar = QWidget()
         bar.setFixedHeight(48)
-        bar.setStyleSheet(
-            f"background: {qcolor_to_rgba(t.surface_2)};"
-            f"border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
-        )
+        bar.setStyleSheet("background: transparent; border: none;")
         h = QHBoxLayout(bar)
         h.setContentsMargins(18, 0, 18, 0)
         h.setSpacing(0)
 
-        # Traffic lights
-        for color in ["#ff5f57", "#febc2e", "#28c840"]:
-            dot = QPushButton()
-            dot.setFixedSize(12, 12)
-            dot.setCursor(Qt.CursorShape.PointingHandCursor)
-            dot.setStyleSheet(
-                f"QPushButton {{ background: {color}; border-radius: 6px; border: none; }}"
-                f"QPushButton:hover {{ filter: brightness(0.88); }}"
-            )
-            if color == "#ff5f57":
-                dot.clicked.connect(self.close)
-            h.addWidget(dot)
-            h.addSpacing(6)
+        # Close button
+        close_dot = QPushButton()
+        close_dot.setFixedSize(12, 12)
+        close_dot.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_dot.setStyleSheet(
+            "QPushButton { background: #ff5f57; border-radius: 6px; border: none; }"
+            "QPushButton:hover { background: #e04640; }"
+        )
+        close_dot.clicked.connect(self.hide)
+        h.addWidget(close_dot)
 
         h.addStretch()
 
@@ -381,7 +505,7 @@ class SettingsWindow(QWidget):
 
         h.addStretch()
         spacer = QWidget()
-        spacer.setFixedWidth(52)
+        spacer.setFixedWidth(16)
         spacer.setStyleSheet("background: transparent; border: none;")
         h.addWidget(spacer)
 
@@ -394,10 +518,7 @@ class SettingsWindow(QWidget):
     def _build_tab_bar(self) -> tuple[QWidget, list[_TabButton]]:
         t = theme()
         bar = QWidget()
-        bar.setStyleSheet(
-            f"background: {qcolor_to_rgba(t.surface_2)};"
-            f"border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
-        )
+        bar.setStyleSheet("background: transparent; border: none;")
         h = QHBoxLayout(bar)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
@@ -405,6 +526,7 @@ class SettingsWindow(QWidget):
         tab_defs = [
             ("\U0001f511", "API Keys"),
             ("\u2699\ufe0f", "Transcription"),
+            ("\u2728", "AI Mode"),
             ("\U0001f3a8", "Appearance"),
             ("\u2139\ufe0f", "About"),
         ]
@@ -424,6 +546,36 @@ class SettingsWindow(QWidget):
         self._stack.setCurrentIndex(idx)
 
     # ─────────────────────────────────────────────────────
+    #  SCROLL AREA HELPER
+    # ─────────────────────────────────────────────────────
+
+    def _styled_scroll_area(self) -> QScrollArea:
+        """Create a scroll area with a styled thin scrollbar."""
+        t = theme()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        handle_col = qcolor_to_rgba(t.text_light)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical {"
+            "  background: transparent; width: 6px;"
+            "  margin: 4px 1px 4px 0px;"
+            "}"
+            f"QScrollBar::handle:vertical {{"
+            f"  background: {handle_col}; border-radius: 3px;"
+            f"  min-height: 30px;"
+            f"}}"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+            "  height: 0px;"
+            "}"
+            "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+            "  background: transparent;"
+            "}"
+        )
+        return scroll
+
+    # ─────────────────────────────────────────────────────
     #  TAB 1 — API KEYS
     # ─────────────────────────────────────────────────────
 
@@ -432,21 +584,31 @@ class SettingsWindow(QWidget):
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
         v = QVBoxLayout(page)
-        v.setContentsMargins(20, 20, 20, 20)
-        v.setSpacing(20)
+        v.setContentsMargins(18, 18, 18, 18)
+        v.setSpacing(4)
 
         # ── Active Provider section ──
         v.addWidget(_section_header("Active Provider"))
 
-        # OpenAI key row
-        row_label = QWidget()
-        row_label.setStyleSheet("background: transparent; border: none;")
-        rl = QHBoxLayout(row_label)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.addWidget(_field_label("OpenAI API Key"))
-        rl.addStretch()
-        rl.addWidget(_badge("Active", active=True))
-        v.addWidget(row_label)
+        card = _CardFrame()
+
+        # OpenAI key row — title/hint left, input+badge right
+        oai_row = QWidget()
+        oai_row.setMinimumHeight(52)
+        rh = QHBoxLayout(oai_row)
+        rh.setContentsMargins(18, 13, 18, 13)
+        rh.setSpacing(14)
+
+        oai_info = QWidget()
+        oai_info.setStyleSheet("background: transparent; border: none;")
+        oai_v = QVBoxLayout(oai_info)
+        oai_v.setContentsMargins(0, 0, 0, 0)
+        oai_v.setSpacing(2)
+        oai_v.addWidget(_field_label("OpenAI API Key"))
+        oai_v.addWidget(
+            _hint("Whisper transcription \u00b7 GPT-4o-mini cleanup \u00b7 ~$0.006/min")
+        )
+        rh.addWidget(oai_info, 1)
 
         # Input + eye toggle
         input_wrap = QWidget()
@@ -459,6 +621,7 @@ class SettingsWindow(QWidget):
         self._openai_input.setPlaceholderText("sk-...")
         self._openai_input.setStyleSheet(_input_ss())
         self._openai_input.setMinimumHeight(38)
+        self._openai_input.setMaximumWidth(220)
         il.addWidget(self._openai_input)
 
         self._eye_btn = QPushButton("\U0001f441")
@@ -473,84 +636,60 @@ class SettingsWindow(QWidget):
         )
         self._eye_btn.clicked.connect(self._toggle_eye)
         il.addWidget(self._eye_btn)
-        v.addWidget(input_wrap)
+        rh.addWidget(input_wrap)
 
-        v.addWidget(
-            _hint("Whisper transcription \u00b7 GPT-4o-mini cleanup \u00b7 ~$0.006/min")
+        rh.addWidget(_badge("Active", active=True))
+        card.add_row(oai_row)
+
+        # Groq key row — same structure as OpenAI row
+        groq_row = QWidget()
+        groq_row.setMinimumHeight(52)
+        grh = QHBoxLayout(groq_row)
+        grh.setContentsMargins(18, 13, 18, 13)
+        grh.setSpacing(14)
+
+        groq_info = QWidget()
+        groq_info.setStyleSheet("background: transparent; border: none;")
+        groq_v = QVBoxLayout(groq_info)
+        groq_v.setContentsMargins(0, 0, 0, 0)
+        groq_v.setSpacing(2)
+        groq_v.addWidget(_field_label("Groq API Key"))
+        groq_v.addWidget(
+            _hint("Whisper at 10\u00d7 speed \u00b7 enables live transcription")
         )
+        grh.addWidget(groq_info, 1)
 
-        # ── Coming Soon section ──
-        v.addSpacing(8)
-        v.addWidget(_section_header("Coming Soon"))
+        groq_input_wrap = QWidget()
+        groq_input_wrap.setStyleSheet("background: transparent; border: none;")
+        gil = QHBoxLayout(groq_input_wrap)
+        gil.setContentsMargins(0, 0, 0, 0)
+        gil.setSpacing(0)
+        self._groq_input = QLineEdit()
+        self._groq_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self._groq_input.setPlaceholderText("gsk_...")
+        self._groq_input.setStyleSheet(_input_ss())
+        self._groq_input.setMinimumHeight(38)
+        self._groq_input.setMaximumWidth(220)
+        gil.addWidget(self._groq_input)
 
-        cs_frame = QFrame()
-        cs_frame.setStyleSheet(
-            "QFrame {"
-            f"  background: {t.surface.name()};"
-            f"  border: 1px solid {qcolor_to_rgba(t.border)};"
-            f"  border-radius: {RADIUS_SM}px;"
-            "}"
+        self._groq_eye_btn = QPushButton("\U0001f441")
+        self._groq_eye_btn.setFixedSize(38, 38)
+        self._groq_eye_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._groq_eye_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; font-size: 14px;"
+            f" color: {qcolor_to_rgba(t.text_light)}; }}"
+            "QPushButton:hover {"
+            f" color: {qcolor_to_rgba(t.text_mid)};"
+            f" background: {qcolor_to_rgba(t.surface_2)}; border-radius: 4px; }}"
         )
-        cs_v = QVBoxLayout(cs_frame)
-        cs_v.setContentsMargins(0, 0, 0, 0)
-        cs_v.setSpacing(0)
+        self._groq_eye_btn.clicked.connect(self._toggle_groq_eye)
+        gil.addWidget(self._groq_eye_btn)
+        grh.addWidget(groq_input_wrap)
 
-        providers = [
-            ("\U0001f30a", "Deepgram", "Ultra-fast streaming transcription"),
-            ("\u26a1", "Groq", "Whisper at 10x inference speed"),
-            ("\U0001f50a", "AssemblyAI", "Speaker detection + smart formatting"),
-        ]
-        for i, (emoji, name, desc) in enumerate(providers):
-            row = QWidget()
-            row.setStyleSheet(
-                f"background: {qcolor_to_rgba(t.surface_2)}; border: none;"
-                + (
-                    f" border-bottom: 1px solid {qcolor_to_rgba(t.border)};"
-                    if i < len(providers) - 1
-                    else ""
-                )
-            )
-            row.setFixedHeight(52)
-            rh = QHBoxLayout(row)
-            rh.setContentsMargins(14, 0, 14, 0)
-            rh.setSpacing(12)
+        grh.addWidget(_badge("Active", active=True))
+        card.add_row(groq_row)
 
-            logo = QLabel(emoji)
-            logo.setFixedSize(28, 28)
-            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            logo.setStyleSheet(
-                f"background: {t.surface.name()};"
-                f" border: 1px solid {qcolor_to_rgba(t.border)};"
-                f" border-radius: {RADIUS_SM}px; font-size: 14px;"
-            )
-            rh.addWidget(logo)
-
-            info = QWidget()
-            info.setStyleSheet("background: transparent; border: none;")
-            iv = QVBoxLayout(info)
-            iv.setContentsMargins(0, 0, 0, 0)
-            iv.setSpacing(1)
-            n = QLabel(name)
-            n.setFont(font_sans(13, 500))
-            n.setStyleSheet(
-                f"color: {t.text.name()}; background: transparent; border: none;"
-            )
-            iv.addWidget(n)
-            d = QLabel(desc)
-            d.setFont(font_serif(11, 400, italic=True))
-            d.setStyleSheet(
-                f"color: {qcolor_to_rgba(t.text_light)};"
-                " background: transparent; border: none;"
-            )
-            iv.addWidget(d)
-            rh.addWidget(info, 1)
-
-            rh.addWidget(_badge("Soon", active=False))
-            cs_v.addWidget(row)
-
-        # Dim the whole coming-soon frame
-        cs_frame.setGraphicsEffect(None)
-        v.addWidget(cs_frame)
+        v.addWidget(card)
         v.addStretch()
         return page
 
@@ -562,93 +701,114 @@ class SettingsWindow(QWidget):
             self._openai_input.setEchoMode(QLineEdit.EchoMode.Password)
             self._eye_btn.setText("\U0001f441")
 
+    def _toggle_groq_eye(self) -> None:
+        if self._groq_input.echoMode() == QLineEdit.EchoMode.Password:
+            self._groq_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._groq_eye_btn.setText("\U0001f648")
+        else:
+            self._groq_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self._groq_eye_btn.setText("\U0001f441")
+
     # ─────────────────────────────────────────────────────
     #  TAB 2 — TRANSCRIPTION
     # ─────────────────────────────────────────────────────
 
     def _build_transcription_tab(self) -> QWidget:
+        t = theme()
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
-        v = QVBoxLayout(page)
-        v.setContentsMargins(20, 20, 20, 20)
-        v.setSpacing(20)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = self._styled_scroll_area()
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent; border: none;")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(18, 18, 18, 18)
+        v.setSpacing(4)
 
         # ── Engine section ──
         v.addWidget(_section_header("Engine"))
 
-        v.addWidget(_field_label("Transcription Mode"))
+        engine_card = _CardFrame()
+
+        # Mode row
         self._mode_seg = SegmentedControl(["\u2601\ufe0f  API", "\U0001f4bb  Local"])
-        v.addWidget(self._mode_seg)
-        v.addWidget(
-            _hint(
-                "Local mode uses Whisper on your Mac. Free, offline, ~1s on Apple Silicon."
-            )
+        engine_card.add_row(
+            _card_row("Mode", "Local is free, offline, ~1s on Apple Silicon", self._mode_seg)
         )
 
-        v.addWidget(_field_label("Local Model Size"))
+        # Local Model row
         self._model_combo = QComboBox()
         self._model_combo.setStyleSheet(_select_ss())
         self._model_combo.setMinimumHeight(38)
+        self._model_combo.setMinimumWidth(160)
         self._model_combo.addItems([
-            "tiny \u2014 75MB \u00b7 Fastest",
-            "base \u2014 145MB \u00b7 Recommended",
-            "small \u2014 460MB \u00b7 Better accuracy",
-            "medium \u2014 1.5GB \u00b7 Best accuracy",
+            "tiny \u2014 75MB",
+            "base \u2014 145MB",
+            "small \u2014 460MB",
+            "medium \u2014 1.5GB",
         ])
-        v.addWidget(self._model_combo)
+        engine_card.add_row(
+            _card_row("Local Model", "Downloads once on first use", self._model_combo)
+        )
+
+        # Live Update Interval (Groq)
+        self._interval_combo = QComboBox()
+        self._interval_combo.setStyleSheet(_select_ss())
+        self._interval_combo.setMinimumHeight(38)
+        self._interval_combo.setMinimumWidth(120)
+        self._interval_combo.addItems(["1 second", "2 seconds", "3 seconds"])
+        engine_card.add_row(
+            _card_row(
+                "Live Update Interval",
+                "How often Groq receives audio snapshots during recording",
+                self._interval_combo,
+            )
+        )
+        v.addWidget(engine_card)
 
         # ── Language & Cleanup section ──
-        v.addSpacing(4)
+        v.addSpacing(8)
         v.addWidget(_section_header("Language & Cleanup"))
 
-        v.addWidget(_field_label("Language"))
+        lang_card = _CardFrame()
+
+        # Language row
         self._lang_combo = QComboBox()
         self._lang_combo.setStyleSheet(_select_ss())
         self._lang_combo.setMinimumHeight(38)
+        self._lang_combo.setMinimumWidth(160)
         for display, code in LANGUAGES:
             self._lang_combo.addItem(display, code)
-        v.addWidget(self._lang_combo)
+        lang_card.add_row(_card_row("Language", None, self._lang_combo))
 
         # AI Cleanup toggle
         self._ai_cleanup_toggle = ToggleSwitch(True)
-        v.addWidget(
-            self._toggle_row(
+        lang_card.add_row(
+            _card_row(
                 "AI Cleanup",
-                "Remove filler words and fix punctuation via GPT-4o-mini",
+                "Remove filler words via GPT-4o-mini \u00b7 ~$0.01/month",
                 self._ai_cleanup_toggle,
             )
         )
 
         # Confidence toggle
         self._confidence_toggle = ToggleSwitch(True)
-        v.addWidget(
-            self._toggle_row(
+        lang_card.add_row(
+            _card_row(
                 "Confidence Highlights",
-                "Underline uncertain words in amber for easy review",
+                "Underline uncertain words for easy review",
                 self._confidence_toggle,
             )
         )
+        v.addWidget(lang_card)
 
         # ── Shortcut section ──
-        v.addSpacing(4)
+        v.addSpacing(8)
         v.addWidget(_section_header("Shortcut"))
 
-        hotkey_row = QWidget()
-        hotkey_row.setStyleSheet("background: transparent; border: none;")
-        hk = QHBoxLayout(hotkey_row)
-        hk.setContentsMargins(0, 0, 0, 0)
-        hk.setSpacing(14)
-
-        info = QWidget()
-        info.setStyleSheet("background: transparent; border: none;")
-        iv = QVBoxLayout(info)
-        iv.setContentsMargins(0, 0, 0, 0)
-        iv.setSpacing(2)
-        iv.addWidget(_field_label("Record Shortcut"))
-        iv.addWidget(_hint("Hold to record \u00b7 Release to transcribe"))
-        hk.addWidget(info, 1)
-
-        t = theme()
+        shortcut_card = _CardFrame()
         key_cap = QLabel("Right \u2325")
         key_cap.setFont(font_sans(12, 600))
         key_cap.setStyleSheet(
@@ -659,38 +819,147 @@ class SettingsWindow(QWidget):
             f"color: {t.text.name()};"
             "padding: 4px 12px;"
         )
-        hk.addWidget(key_cap)
-        v.addWidget(hotkey_row)
+        shortcut_card.add_row(
+            _card_row(
+                "Record Shortcut",
+                "Hold to record \u00b7 release to transcribe",
+                key_cap,
+            )
+        )
+        v.addWidget(shortcut_card)
 
         v.addStretch()
+        scroll.setWidget(inner)
+        page_layout.addWidget(scroll)
         return page
+
+    # ─────────────────────────────────────────────────────
+    #  TAB 3 — AI MODE
+    # ─────────────────────────────────────────────────────
+
+    def _build_ai_tab(self) -> QWidget:
+        t = theme()
+        page = QWidget()
+        page.setStyleSheet("background: transparent; border: none;")
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = self._styled_scroll_area()
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent; border: none;")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(18, 18, 18, 18)
+        v.setSpacing(4)
+
+        # ── LLM Formatting section ──
+        v.addWidget(_section_header("LLM Formatting"))
+
+        ai_card = _CardFrame()
+
+        # AI Mode Default toggle
+        self._ai_default_toggle = ToggleSwitch(False)
+        ai_card.add_row(
+            _card_row(
+                "AI Mode Default",
+                "Automatically format transcripts for LLM input",
+                self._ai_default_toggle,
+            )
+        )
+
+        # AI Format Style segmented control
+        self._ai_style_seg = SegmentedControl(["Structured", "Condensed", "Bullets"])
+        self._ai_style_row = _card_row(
+            "Format Style",
+            "How to structure the formatted output",
+            self._ai_style_seg,
+        )
+        ai_card.add_row(self._ai_style_row)
+
+        # Show original toggle
+        self._ai_show_original_toggle = ToggleSwitch(False)
+        ai_card.add_row(
+            _card_row(
+                "Show Original",
+                "Display raw transcript below the formatted version",
+                self._ai_show_original_toggle,
+            )
+        )
+
+        v.addWidget(ai_card)
+
+        # Connect AI Default to enable/disable the Style row
+        self._ai_default_toggle.toggled.connect(self._on_ai_default_toggled)
+
+        # ── How It Works section ──
+        v.addSpacing(8)
+        v.addWidget(_section_header("How It Works"))
+
+        info_card = _CardFrame()
+        info_row = QWidget()
+        info_row.setMinimumHeight(52)
+        info_h = QHBoxLayout(info_row)
+        info_h.setContentsMargins(18, 16, 18, 16)
+
+        info_label = QLabel(
+            "When AI Mode is active, your transcription is sent to GPT-4o-mini "
+            "to restructure it into clean, labelled context optimised for pasting "
+            "into an LLM chat.\n\n"
+            "Toggle AI Mode per-transcription using the switch in the notepad footer, "
+            "or enable it by default above."
+        )
+        info_label.setFont(font_serif(12, 400, italic=True))
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet(
+            f"color: {qcolor_to_rgba(t.text_mid)};"
+            " background: transparent; border: none; line-height: 1.5;"
+        )
+        info_h.addWidget(info_label)
+        info_card.add_row(info_row)
+        v.addWidget(info_card)
+
+        v.addStretch()
+        scroll.setWidget(inner)
+        page_layout.addWidget(scroll)
+        return page
+
+    def _on_ai_default_toggled(self, checked: bool) -> None:
+        self._ai_style_row.setEnabled(checked)
 
     # ─────────────────────────────────────────────────────
     #  TAB 3 — APPEARANCE
     # ─────────────────────────────────────────────────────
 
     def _build_appearance_tab(self) -> QWidget:
+        t = theme()
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
         v = QVBoxLayout(page)
-        v.setContentsMargins(20, 20, 20, 20)
-        v.setSpacing(20)
+        v.setContentsMargins(18, 18, 18, 18)
+        v.setSpacing(4)
 
         # ── Overlay section ──
         v.addWidget(_section_header("Overlay"))
 
+        overlay_card = _CardFrame()
+
+        # Show Recording Overlay toggle row
         self._overlay_toggle = ToggleSwitch(True)
-        v.addWidget(
-            self._toggle_row(
+        overlay_card.add_row(
+            _card_row(
                 "Show Recording Overlay",
-                "Floating pill with waveform and live transcript while recording",
+                "Floating pill with waveform during recording",
                 self._overlay_toggle,
             )
         )
 
-        v.addWidget(_field_label("Overlay Position"))
+        # Position row — column layout with grid inside
+        pos_row = QWidget()
+        pos_row.setMinimumHeight(52)
+        pos_v = QVBoxLayout(pos_row)
+        pos_v.setContentsMargins(18, 13, 18, 13)
+        pos_v.setSpacing(12)
+        pos_v.addWidget(_field_label("Position"))
 
-        # 2x3 position grid
         pos_grid = QWidget()
         pos_grid.setStyleSheet("background: transparent; border: none;")
         grid = QGridLayout(pos_grid)
@@ -712,20 +981,25 @@ class SettingsWindow(QWidget):
             row_idx, col_idx = divmod(i, 3)
             grid.addWidget(chip, row_idx, col_idx)
             self._pos_chips.append((chip, key))
-        v.addWidget(pos_grid)
+        pos_v.addWidget(pos_grid)
+        overlay_card.add_row(pos_row)
+
+        v.addWidget(overlay_card)
 
         # ── Accessibility section ──
-        v.addSpacing(4)
+        v.addSpacing(8)
         v.addWidget(_section_header("Accessibility"))
 
+        access_card = _CardFrame()
         self._motion_toggle = ToggleSwitch(False)
-        v.addWidget(
-            self._toggle_row(
+        access_card.add_row(
+            _card_row(
                 "Reduce Motion",
-                "Simpler transitions for accessibility or performance",
+                "Simpler transitions for accessibility",
                 self._motion_toggle,
             )
         )
+        v.addWidget(access_card)
 
         v.addStretch()
         return page
@@ -741,60 +1015,101 @@ class SettingsWindow(QWidget):
 
     def _build_about_tab(self) -> QWidget:
         t = theme()
+
+        # Scroll area so content is never clipped
         page = QWidget()
         page.setStyleSheet("background: transparent; border: none;")
-        v = QVBoxLayout(page)
-        v.setContentsMargins(20, 32, 20, 8)
-        v.setSpacing(14)
-        v.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
 
-        # App icon — red rounded square with mic
-        icon = QLabel("\U0001f399")
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 0px; }"
+        )
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent; border: none;")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(18, 32, 18, 12)
+        v.setSpacing(14)
+
+        # ── App icon — SVG from assets ──
+        icon_wrap = QWidget()
+        icon_wrap.setStyleSheet("background: transparent; border: none;")
+        icon_h = QHBoxLayout(icon_wrap)
+        icon_h.setContentsMargins(0, 0, 0, 0)
+        icon = QLabel()
         icon.setFixedSize(72, 72)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet(
-            "font-size: 32px;"
-            f"background: {t.red.name()};"
-            f"border-radius: 18px;"
-            "color: white;"
-        )
-        v.addWidget(icon, 0, Qt.AlignmentFlag.AlignHCenter)
+        icon_path = Path(__file__).parent / "assets" / "scribr_icon.svg"
+        pm = QPixmap(str(icon_path))
+        if not pm.isNull():
+            icon.setPixmap(
+                pm.scaled(72, 72, Qt.AspectRatioMode.KeepAspectRatio,
+                          Qt.TransformationMode.SmoothTransformation)
+            )
+        icon.setStyleSheet("background: transparent; border: none;")
+        icon_h.addStretch()
+        icon_h.addWidget(icon)
+        icon_h.addStretch()
+        v.addWidget(icon_wrap)
 
-        name = QLabel("Scribr")
+        # ── App name ──
+        name = QLabel(
+            f'<span style="color:{t.text.name()};">Scrib</span>'
+            f'<span style="color:{t.red.name()};">r</span>'
+        )
+        name.setTextFormat(Qt.TextFormat.RichText)
         name.setFont(font_serif(24, 600))
         name.setStyleSheet(
-            f"color: {t.text.name()}; background: transparent; border: none;"
+            "background: transparent; border: none;"
             " letter-spacing: -0.02em;"
         )
         name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(name)
 
-        ver = QLabel("Version 1.0.0 \u00b7 Python + PyQt6")
+        # ── Version ──
+        ver = QLabel("Version 1.0.0 \u00b7 Python 3.12 + PyQt6")
         ver.setFont(font_serif(12, 400, italic=True))
         ver.setStyleSheet(
             f"color: {qcolor_to_rgba(t.text_light)};"
             " background: transparent; border: none;"
         )
         ver.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        v.addSpacing(-8)
         v.addWidget(ver)
 
+        # ── Description ──
+        # IMPORTANT: Do NOT use addWidget(..., AlignHCenter) with word-wrapped
+        # labels — Qt calculates height at full layout width but renders the
+        # widget at sizeHint width, causing height to be halved and text to clip.
+        # Instead, center via a wrapper HBoxLayout with stretches on both sides.
         desc = QLabel(
-            "Just tap, talk, and it\u2019s done.\n"
-            "Your voice, turned into text \u2014 ready\n"
-            "to read in seconds."
+            "Hold Right \u2325 to record. Release to transcribe.\n"
+            "Your words appear ready to share."
         )
         desc.setFont(font_serif(14, 400, italic=True))
         desc.setStyleSheet(
             f"color: {qcolor_to_rgba(t.text_mid)};"
             " background: transparent; border: none;"
-            " line-height: 1.7;"
         )
         desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
         desc.setWordWrap(True)
-        desc.setMaximumWidth(320)
-        v.addWidget(desc, 0, Qt.AlignmentFlag.AlignHCenter)
+        desc.setFixedWidth(320)
 
-        # Stats row
+        desc_wrap = QWidget()
+        desc_wrap.setStyleSheet("background: transparent; border: none;")
+        dh = QHBoxLayout(desc_wrap)
+        dh.setContentsMargins(0, 0, 0, 0)
+        dh.addStretch()
+        dh.addWidget(desc)
+        dh.addStretch()
+        v.addWidget(desc_wrap)
+
+        # ── Stats row ──
         stats_frame = QFrame()
         stats_frame.setStyleSheet(
             "QFrame {"
@@ -841,7 +1156,7 @@ class SettingsWindow(QWidget):
 
         v.addWidget(stats_frame)
 
-        # Links row
+        # ── Links row ──
         links_row = QWidget()
         links_row.setStyleSheet("background: transparent; border: none;")
         lh = QHBoxLayout(links_row)
@@ -859,7 +1174,7 @@ class SettingsWindow(QWidget):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(
                 "QPushButton {"
-                "  padding: 7px 16px; border-radius: 999px;"
+                "  min-height: 32px; padding: 0px 16px; border-radius: 16px;"
                 f"  background: {qcolor_to_rgba(t.surface_2)};"
                 f"  border: 1px solid {qcolor_to_rgba(t.border)};"
                 f"  color: {qcolor_to_rgba(t.text_mid)};"
@@ -873,6 +1188,9 @@ class SettingsWindow(QWidget):
         v.addWidget(links_row)
 
         v.addStretch()
+
+        scroll.setWidget(inner)
+        page_layout.addWidget(scroll)
         return page
 
     # ─────────────────────────────────────────────────────
@@ -883,10 +1201,7 @@ class SettingsWindow(QWidget):
         t = theme()
         bar = QWidget()
         bar.setFixedHeight(56)
-        bar.setStyleSheet(
-            f"background: {qcolor_to_rgba(t.surface_2)};"
-            f"border-top: 1px solid {qcolor_to_rgba(t.border)};"
-        )
+        bar.setStyleSheet("background: transparent; border: none;")
         h = QHBoxLayout(bar)
         h.setContentsMargins(20, 0, 20, 0)
 
@@ -903,7 +1218,7 @@ class SettingsWindow(QWidget):
         cancel.setFont(font_sans(13, 500))
         cancel.setStyleSheet(_btn_ghost_ss())
         cancel.setCursor(Qt.CursorShape.PointingHandCursor)
-        cancel.clicked.connect(self.close)
+        cancel.clicked.connect(self.hide)
         h.addWidget(cancel)
 
         h.addSpacing(8)
@@ -952,6 +1267,11 @@ class SettingsWindow(QWidget):
         s = self._settings
 
         self._openai_input.setText(s.get("openai_api_key", ""))
+        self._groq_input.setText(s.get("groq_api_key", ""))
+
+        # Groq live interval (1, 2, or 3 seconds)
+        interval = s.get("groq_live_interval", 2)
+        self._interval_combo.setCurrentIndex(max(0, min(2, interval - 1)))
 
         # Transcription mode
         mode = s.get("transcription_mode", "api")
@@ -978,23 +1298,45 @@ class SettingsWindow(QWidget):
         self._overlay_toggle.set_checked(s.get("show_overlay", True), animate=False)
         self._motion_toggle.set_checked(s.get("reduce_motion", False), animate=False)
 
+        # AI Mode
+        ai_default = s.get("ai_mode_default", False)
+        self._ai_default_toggle.set_checked(ai_default, animate=False)
+        self._on_ai_default_toggled(ai_default)
+
+        ai_styles = ["structured", "condensed", "bullets"]
+        ai_style_str = s.get("ai_format_style", "structured")
+        idx = ai_styles.index(ai_style_str) if ai_style_str in ai_styles else 0
+        self._ai_style_seg.set_selected(idx)
+
+        self._ai_show_original_toggle.set_checked(s.get("ai_show_original", False), animate=False)
+
         # Position
         self._current_position = s.get("overlay_position", "bottom_centre")
         for chip, k in self._pos_chips:
             chip.set_active(k == self._current_position)
 
     def _save(self) -> None:
-        key = self._openai_input.text().strip()
+        oai_key = self._openai_input.text().strip()
+        groq_key = self._groq_input.text().strip()
 
-        # Validate OpenAI key (friendly error message per brand)
-        if key and not key.startswith("sk-"):
+        # Validate OpenAI key
+        if oai_key and not oai_key.startswith("sk-"):
             self._toast.show_error(
-                "That doesn\u2019t look right \u2014 keys start with sk-"
+                "OpenAI keys start with sk-"
+            )
+            return
+
+        # Validate Groq key
+        if groq_key and not groq_key.startswith("gsk_"):
+            self._toast.show_error(
+                "Groq keys start with gsk_"
             )
             return
 
         s = self._settings
-        s.set("openai_api_key", key)
+        s.set("openai_api_key", oai_key)
+        s.set("groq_api_key", groq_key)
+        s.set("groq_live_interval", self._interval_combo.currentIndex() + 1)
         s.set(
             "transcription_mode",
             "api" if self._mode_seg.selected_index() == 0 else "local",
@@ -1012,9 +1354,14 @@ class SettingsWindow(QWidget):
         s.set("reduce_motion", self._motion_toggle.is_checked())
         s.set("overlay_position", self._current_position)
 
+        s.set("ai_mode_default", self._ai_default_toggle.is_checked())
+        ai_styles = ["structured", "condensed", "bullets"]
+        s.set("ai_format_style", ai_styles[self._ai_style_seg.selected_index()])
+        s.set("ai_show_original", self._ai_show_original_toggle.is_checked())
+
         s.save()
-        self._toast.show_success("\u2713 Done")
         self.settings_saved.emit()
+        self.hide()
 
     # ─────────────────────────────────────────────────────
     #  WINDOW DRAGGING

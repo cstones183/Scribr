@@ -24,18 +24,20 @@ class AppSettings:
     """Typed, validated settings with defaults."""
 
     openai_api_key: str = ""
-    deepgram_api_key: str = ""
-    assemblyai_api_key: str = ""
     groq_api_key: str = ""
     transcription_mode: str = "api"  # "api" | "local"
     local_model_size: str = "base"  # "tiny" | "base" | "small" | "medium"
-    language: str = "auto"
+    groq_live_interval: int = 2  # seconds between live snapshots (1, 2, or 3)
+    language: str = "en"
     ai_cleanup: bool = True
     confidence_highlights: bool = True
     hotkey: str = "alt_r"
     show_overlay: bool = True
     overlay_position: str = "bottom_centre"
     reduce_motion: bool = False
+    ai_mode_default: bool = False
+    ai_format_style: str = "structured"  # "structured" | "condensed" | "bullets"
+    ai_show_original: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
