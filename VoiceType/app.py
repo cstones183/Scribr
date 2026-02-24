@@ -3,16 +3,33 @@
 
 from __future__ import annotations
 
+import logging
+import logging.handlers
 import sys
 import traceback
 import threading
 import time
+from pathlib import Path
+
+# ── Logging setup ─────────────────────────────────────
+_LOG_DIR = Path.home() / "Library" / "Logs" / "Scribr"
+_LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.handlers.RotatingFileHandler(
+            _LOG_DIR / "scribr.log", maxBytes=1_000_000, backupCount=3,
+        ),
+    ],
+)
+log = logging.getLogger("scribr")
 
 
 def _global_exception_handler(exc_type, exc_value, exc_tb):
-    """Print tracebacks instead of letting PyQt6 call qFatal → abort."""
-    print("".join(traceback.format_exception(exc_type, exc_value, exc_tb)),
-          file=sys.stderr, flush=True)
+    """Log tracebacks instead of letting PyQt6 call qFatal → abort."""
+    log.critical("".join(traceback.format_exception(exc_type, exc_value, exc_tb)))
 
 
 sys.excepthook = _global_exception_handler
@@ -29,14 +46,13 @@ from stats import StatsManager
 from settings_window import SettingsWindow
 from transcriber import (
     GroqTranscriber,
-    LocalTranscriber,
     OpenAITranscriber,
     TranscriptionError,
 )
 
 from pynput.keyboard import Controller, Key
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 
 class _ThreadBridge(QObject):
@@ -64,7 +80,7 @@ class ScribrApp:
             ns_app = AppKit.NSApplication.sharedApplication()
             ns_app.setActivationPolicy_(1)
         except ImportError:
-            print("[App] Warning: AppKit not installed, cannot hide Dock icon.")
+            log.warning("AppKit not installed, cannot hide Dock icon.")
 
         self._settings = SettingsManager()
         self._stats = StatsManager()
@@ -101,13 +117,11 @@ class ScribrApp:
 
         # ── Transcriber / corrector (built from settings) ──
         self._transcriber: GroqTranscriber | OpenAITranscriber | None = None
-        self._local_transcriber: LocalTranscriber | None = None
         self._corrector: Corrector | None = None
         self._rebuild_transcriber()
 
-        print(f"[App] Transcriber: {type(self._transcriber).__name__ if self._transcriber else 'None'}")
-        print(f"[App] Local transcriber: {self._local_transcriber is not None}")
-        print(f"[App] Corrector: {self._corrector is not None}")
+        log.info("Transcriber: %s", type(self._transcriber).__name__ if self._transcriber else "None")
+        log.info("Corrector: %s", self._corrector is not None)
 
         # ── Thread bridge (signals for bg thread → main thread) ──
         self._bridge = _ThreadBridge()
@@ -149,31 +163,17 @@ class ScribrApp:
     def _rebuild_transcriber(self) -> None:
         """Create transcriber + corrector from current settings."""
         s = self._settings
-        mode = s.get("transcription_mode", "api")
 
-        if mode == "local":
-            model_size = s.get("local_model_size", "base")
-            self._transcriber = None
-            if (
-                self._local_transcriber is None
-                or self._local_transcriber._model_size != model_size
-            ):
-                self._local_transcriber = LocalTranscriber(model_size=model_size)
-                threading.Thread(
-                    target=self._local_transcriber.load_model,
-                    daemon=True,
-                ).start()
+        # Prefer Groq (live capable), fall back to OpenAI
+        groq_key = s.get("groq_api_key", "")
+        openai_key = s.get("openai_api_key", "")
+
+        if groq_key:
+            self._transcriber = GroqTranscriber(api_key=groq_key)
+        elif openai_key:
+            self._transcriber = OpenAITranscriber(api_key=openai_key)
         else:
-            # API mode: prefer Groq (live capable), fall back to OpenAI
-            groq_key = s.get("groq_api_key", "")
-            openai_key = s.get("openai_api_key", "")
-
-            if groq_key:
-                self._transcriber = GroqTranscriber(api_key=groq_key)
-            elif openai_key:
-                self._transcriber = OpenAITranscriber(api_key=openai_key)
-            else:
-                self._transcriber = None
+            self._transcriber = None
 
         # Corrector uses OpenAI key — needed for both ai_cleanup and AI format mode
         openai_key = s.get("openai_api_key", "")
@@ -190,11 +190,11 @@ class ScribrApp:
         # Detect text field focus NOW on the pynput thread — before the
         # modifier key event propagates and disrupts macOS AX focus state.
         self._cached_typing_context = is_text_field_focused()
-        print(f"[Hotkey] Right Option PRESSED (typing_context={self._cached_typing_context})")
+        log.debug("Hotkey PRESSED (typing_context=%s)", self._cached_typing_context)
         self._bridge.hotkey_pressed.emit()
 
     def _on_hotkey_release(self) -> None:
-        print("[Hotkey] Right Option RELEASED")
+        log.debug("Hotkey RELEASED")
         self._bridge.hotkey_released.emit()
 
     # ─────────────────────────────────────────────────────
@@ -216,7 +216,7 @@ class ScribrApp:
         self._is_recording = True
         self._recording_start = time.time()
 
-        print("[App] Starting recording...")
+        log.info("Starting recording...")
         self._overlay.set_is_typing_context(
             getattr(self, "_cached_typing_context", False)
         )
@@ -228,7 +228,7 @@ class ScribrApp:
         self._menubar.set_recording(True)
 
         self._recorder.start(on_rms_update=self._overlay.update_rms)
-        print(f"[App] Recorder started (is_recording={self._recorder.is_recording})")
+        log.debug("Recorder started (is_recording=%s)", self._recorder.is_recording)
 
         # If using Groq, start the live transcription timer
         if isinstance(self._transcriber, GroqTranscriber):
@@ -236,7 +236,7 @@ class ScribrApp:
             self._groq_timer.setInterval(interval_s * 1000)
             self._groq_pending = False
             self._groq_timer.start()
-            print(f"[App] Groq live timer started (every {interval_s}s)")
+            log.debug("Groq live timer started (every %ds)", interval_s)
 
     def _stop_recording(self) -> None:
         if not self._is_recording:
@@ -253,9 +253,7 @@ class ScribrApp:
             api_cost = (duration / 60.0) * 0.006
         self._stats.add_clip(duration, api_cost)
 
-        print(f"[App] Stopped recording ({duration:.1f}s, total={self._total_duration:.1f}s, {len(wav_bytes)} bytes)")
-        print(f"[App] Transcriber: {type(self._transcriber).__name__ if self._transcriber else 'None'}")
-        print(f"[App] Local transcriber: {self._local_transcriber is not None}")
+        log.info("Stopped recording (%.1fs, total=%.1fs, %d bytes)", duration, self._total_duration, len(wav_bytes))
         self._menubar.set_transcribing()
 
         if isinstance(self._transcriber, GroqTranscriber):
@@ -265,10 +263,6 @@ class ScribrApp:
             # OpenAI: single transcription after release
             self._overlay.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
             self._transcribe_in_background(wav_bytes)
-        elif self._local_transcriber is not None:
-            # Local Whisper: run inference after release
-            self._overlay.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
-            self._transcribe_local_in_background(wav_bytes)
         else:
             # No transcriber configured
             self._overlay.transition_to(OverlayState.IDLE)
@@ -279,14 +273,14 @@ class ScribrApp:
     # ─────────────────────────────────────────────────────
 
     def _on_groq_tick(self) -> None:
-        print(f"[Groq tick] recording={self._is_recording} pending={self._groq_pending}")
+        log.debug("Groq tick: recording=%s pending=%s", self._is_recording, self._groq_pending)
         if not self._is_recording or self._groq_pending:
             return
         wav_snapshot = self._recorder.get_wav_snapshot()
         if not wav_snapshot or len(wav_snapshot) < 100:
-            print(f"[Groq tick] Snapshot too small ({len(wav_snapshot) if wav_snapshot else 0} bytes)")
+            log.debug("Groq tick: snapshot too small (%d bytes)", len(wav_snapshot) if wav_snapshot else 0)
             return
-        print(f"[Groq tick] Sending {len(wav_snapshot)} bytes to Groq...")
+        log.debug("Groq tick: sending %d bytes", len(wav_snapshot))
         self._groq_pending = True
         threading.Thread(
             target=self._groq_snapshot_worker,
@@ -297,15 +291,16 @@ class ScribrApp:
     def _groq_snapshot_worker(self, wav_bytes: bytes) -> None:
         try:
             language = self._settings.get("language", "auto")
-            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
-            text = self._transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
-            print(f"[Groq snapshot] Result: {repr(text[:80] if text else text)}")
+            uk = language == "en-uk"
+            prompt = "Use UK English spelling and grammar." if uk else ""
+            text = self._transcriber.transcribe(wav_bytes, language="en" if uk else language, prompt=prompt)
+            log.debug("Groq snapshot result: %r", text[:80] if text else text)
             if text is not None:
                 display_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
                 if display_text:
                     self._bridge.live_transcript.emit(display_text)
         except TranscriptionError as e:
-            print(f"[Groq snapshot] ERROR: {e}")
+            log.warning("Groq snapshot error: %s", e)
         finally:
             self._groq_pending = False
 
@@ -323,45 +318,20 @@ class ScribrApp:
     def _api_transcribe_worker(self, wav_bytes: bytes) -> None:
         try:
             language = self._settings.get("language", "auto")
-            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
-            print(f"[App] Transcribing {len(wav_bytes)} bytes (lang={language})...")
-            text = self._transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
-            print(f"[App] Transcription result: {repr(text[:100] if text else text)}")
+            uk = language == "en-uk"
+            prompt = "Use UK English spelling and grammar." if uk else ""
+            log.info("Transcribing %d bytes (lang=%s)", len(wav_bytes), language)
+            text = self._transcriber.transcribe(wav_bytes, language="en" if uk else language, prompt=prompt)
+            log.debug("Transcription result: %r", text[:100] if text else text)
             if text:
                 text = self._maybe_correct(text)
                 final_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
                 self._bridge.final_transcript.emit(final_text)
             else:
-                print("[App] Empty transcription result")
+                log.warning("Empty transcription result")
                 self._bridge.transcription_error.emit()
         except TranscriptionError as e:
-            print(f"[Transcriber] {e}")
-            self._bridge.transcription_error.emit()
-
-    # ─────────────────────────────────────────────────────
-    #  LOCAL TRANSCRIPTION (background thread)
-    # ─────────────────────────────────────────────────────
-
-    def _transcribe_local_in_background(self, wav_bytes: bytes) -> None:
-        threading.Thread(
-            target=self._local_transcribe_worker,
-            args=(wav_bytes,),
-            daemon=True,
-        ).start()
-
-    def _local_transcribe_worker(self, wav_bytes: bytes) -> None:
-        try:
-            language = self._settings.get("language", "auto")
-            prompt = "Use UK English spelling and grammar." if self._settings.get("use_uk_english", False) else ""
-            text = self._local_transcriber.transcribe(wav_bytes, language=language, prompt=prompt)
-            if text:
-                text = self._maybe_correct(text)
-                final_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
-                self._bridge.final_transcript.emit(final_text)
-            else:
-                self._bridge.transcription_error.emit()
-        except TranscriptionError as e:
-            print(f"[Local transcriber] {e}")
+            log.warning("Transcription failed: %s", e)
             self._bridge.transcription_error.emit()
 
     # ─────────────────────────────────────────────────────
@@ -372,12 +342,12 @@ class ScribrApp:
         """Run AI cleanup if enabled. Returns uncorrected text on failure."""
         if self._corrector and self._settings.get("ai_cleanup", True):
             try:
-                uk = self._settings.get("use_uk_english", False)
+                uk = self._settings.get("language", "auto") == "en-uk"
                 result = self._corrector.clean_text(text, use_uk_english=uk)
                 self._stats.add_cost(0.0005)
                 return result
             except CorrectionError as e:
-                print(f"[Corrector] {e}")
+                log.warning("Corrector failed: %s", e)
         return text
 
     # ─────────────────────────────────────────────────────
@@ -386,7 +356,7 @@ class ScribrApp:
 
     def _on_ai_format_requested(self, text: str) -> None:
         if not self._corrector:
-            print("[App] AI Format requested but no corrector initialized.")
+            log.warning("AI Format requested but no corrector initialized.")
             self._bridge.ai_format_failed.emit()
             return
 
@@ -399,18 +369,18 @@ class ScribrApp:
     def _ai_format_worker(self, text: str) -> None:
         try:
             style = self._settings.get("ai_format_style", "structured")
-            uk = self._settings.get("use_uk_english", False)
-            print(f"[App] AI Formatting ({style}) {len(text)} chars...")
+            uk = self._settings.get("language", "auto") == "en-uk"
+            log.info("AI Formatting (%s) %d chars", style, len(text))
             result = self._corrector.format_for_llm(text, style=style, use_uk_english=uk)
             if result:
-                print(f"[App] AI Format result: {repr(result[:80])}")
+                log.debug("AI Format result: %r", result[:80])
                 self._stats.add_cost(0.0005)
                 self._history.update_ai_text(text, result)
                 self._bridge.ai_format_completed.emit(result)
             else:
                 self._bridge.ai_format_failed.emit()
         except CorrectionError as e:
-            print(f"[Corrector] Format error: {e}")
+            log.warning("AI Format error: %s", e)
             self._bridge.ai_format_failed.emit()
 
     # ─────────────────────────────────────────────────────
@@ -418,7 +388,7 @@ class ScribrApp:
     # ─────────────────────────────────────────────────────
 
     def _on_ai_format_completed(self, text: str) -> None:
-        print(f"[App] AI format completed, pending_paste={self._pending_paste_context}")
+        log.debug("AI format completed, pending_paste=%s", self._pending_paste_context)
         self._overlay.on_ai_format_completed(text)
 
         # Auto-copy exactly as we do for raw transcript
@@ -434,26 +404,26 @@ class ScribrApp:
                 self._keyboard.press('v')
                 self._keyboard.release('v')
                 self._keyboard.release(Key.cmd)
-                print("[App] Auto-pasted AI text via Cmd+V")
+                log.debug("Auto-pasted AI text via Cmd+V")
                 self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
 
             QTimer.singleShot(50, _do_paste)
 
     def _on_final_transcript(self, text: str) -> None:
-        print(f"[App] Final transcript → overlay: {repr(text[:80])}")
+        log.info("Final transcript: %r", text[:80])
 
         # Auto-copy to clipboard
         clipboard = QApplication.clipboard()
         if clipboard:
             clipboard.setText(text)
-            print("[App] Copied to clipboard")
+            log.debug("Copied to clipboard")
 
         # Cache typing context BEFORE transitioning — overlay state may drift
         # during AI processing (focus timer, state transitions, etc.)
         is_typing = self._overlay.is_typing_context
         is_ai = self._overlay._ai_mode_active
         self._pending_paste_context = is_typing and is_ai
-        print(f"[App] Context cache: typing={is_typing} ai={is_ai} pending_paste={self._pending_paste_context}")
+        log.debug("Context cache: typing=%s ai=%s pending_paste=%s", is_typing, is_ai, self._pending_paste_context)
 
         # Add to history
         self._history.add(text, duration_s=self._total_duration)
@@ -475,27 +445,30 @@ class ScribrApp:
                 self._keyboard.press('v')
                 self._keyboard.release('v')
                 self._keyboard.release(Key.cmd)
-                print("[App] Auto-pasted raw text via Cmd+V")
+                log.debug("Auto-pasted raw text via Cmd+V")
                 self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
 
             # Small delay to ensure clipboard is populated before pasting
             QTimer.singleShot(50, _do_paste)
 
         self._menubar.set_idle()
-        print(f"[App] Overlay state: {self._overlay.state}")
+        log.debug("Overlay state: %s", self._overlay.state)
 
     def _on_transcription_error(self) -> None:
         self._overlay.transition_to(OverlayState.IDLE)
         self._menubar.set_idle()
 
     def _on_device_error(self, msg: str) -> None:
-        print(f"[Device error] {msg}")
+        log.error("Device error: %s", msg)
         self._is_recording = False
         self._overlay.transition_to(OverlayState.IDLE)
         self._menubar.set_idle()
 
     def _on_permission_error(self, msg: str) -> None:
-        print(f"[Permission error] {msg}")
+        log.error("Permission error: %s", msg)
+        QMessageBox.warning(
+            None, "Scribr — Permission Required", msg,
+        )
 
     # ─────────────────────────────────────────────────────
     #  MENUBAR CALLBACKS
@@ -512,7 +485,7 @@ class ScribrApp:
         QTimer.singleShot(2000, self._stop_recording)
 
     def _on_history_clicked(self, entry: dict) -> None:
-        print(f"[App] History item clicked: {entry.get('text', '')[:20]}...")
+        log.debug("History item clicked: %s...", entry.get("text", "")[:20])
         self._overlay.transition_to(
             OverlayState.RESULT_NOTEPAD,
             history_entry=entry,

@@ -1,6 +1,8 @@
 # context_detector.py — Uses the macOS Accessibility API (pyobjc) to detect
 # whether a text field is currently focused.  Covers native AppKit fields,
 # Chromium/Safari web inputs, contenteditable divs, and Electron apps.
+import logging
+
 from ApplicationServices import (
     AXUIElementCreateSystemWide,
     AXUIElementCopyAttributeValue,
@@ -67,5 +69,5 @@ def is_text_field_focused() -> bool:
 
         return False
     except Exception as e:
-        print(f"[ContextDetector] Error checking focus: {e}")
+        logging.getLogger("scribr.context").debug("Error checking focus: %s", e)
         return False

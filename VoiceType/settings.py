@@ -25,8 +25,6 @@ class AppSettings:
 
     openai_api_key: str = ""
     groq_api_key: str = ""
-    transcription_mode: str = "api"  # "api" | "local"
-    local_model_size: str = "base"  # "tiny" | "base" | "small" | "medium"
     groq_live_interval: int = 2  # seconds between live snapshots (1, 2, or 3)
     language: str = "en"
     ai_cleanup: bool = True
@@ -38,7 +36,6 @@ class AppSettings:
     ai_mode_default: bool = False
     ai_format_style: str = "structured"  # "structured" | "condensed" | "bullets"
     ai_show_original: bool = False
-    use_uk_english: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -58,6 +55,7 @@ DEFAULT_SETTINGS = AppSettings().to_dict()
 LANGUAGES: list[tuple[str, str]] = [
     ("Auto-detect", "auto"),
     ("English", "en"),
+    ("English (UK)", "en-uk"),
     ("Spanish", "es"),
     ("French", "fr"),
     ("German", "de"),

@@ -734,27 +734,6 @@ class SettingsWindow(QWidget):
 
         engine_card = _CardFrame()
 
-        # Mode row
-        self._mode_seg = SegmentedControl(["\u2601\ufe0f  API", "\U0001f4bb  Local"])
-        engine_card.add_row(
-            _card_row("Mode", "Local is free, offline, ~1s on Apple Silicon", self._mode_seg)
-        )
-
-        # Local Model row
-        self._model_combo = QComboBox()
-        self._model_combo.setStyleSheet(_select_ss())
-        self._model_combo.setMinimumHeight(38)
-        self._model_combo.setMinimumWidth(160)
-        self._model_combo.addItems([
-            "tiny \u2014 75MB",
-            "base \u2014 145MB",
-            "small \u2014 460MB",
-            "medium \u2014 1.5GB",
-        ])
-        engine_card.add_row(
-            _card_row("Local Model", "Downloads once on first use", self._model_combo)
-        )
-
         # Live Update Interval (Groq)
         self._interval_combo = QComboBox()
         self._interval_combo.setStyleSheet(_select_ss())
@@ -888,16 +867,6 @@ class SettingsWindow(QWidget):
                 "Show Original",
                 "Display raw transcript below the formatted version",
                 self._ai_show_original_toggle,
-            )
-        )
-
-        # UK English toggle
-        self._uk_english_toggle = ToggleSwitch(False)
-        ai_card.add_row(
-            _card_row(
-                "UK English",
-                "Enforce UK English spelling and grammar",
-                self._uk_english_toggle,
             )
         )
 
@@ -1290,16 +1259,6 @@ class SettingsWindow(QWidget):
         interval = s.get("groq_live_interval", 2)
         self._interval_combo.setCurrentIndex(max(0, min(2, interval - 1)))
 
-        # Transcription mode
-        mode = s.get("transcription_mode", "api")
-        self._mode_seg.set_selected(0 if mode == "api" else 1)
-
-        # Model size
-        sizes = ["tiny", "base", "small", "medium"]
-        model = s.get("local_model_size", "base")
-        idx = sizes.index(model) if model in sizes else 1
-        self._model_combo.setCurrentIndex(idx)
-
         # Language
         lang = s.get("language", "auto")
         for i in range(self._lang_combo.count()):
@@ -1326,7 +1285,6 @@ class SettingsWindow(QWidget):
         self._ai_style_seg.set_selected(idx)
 
         self._ai_show_original_toggle.set_checked(s.get("ai_show_original", False), animate=False)
-        self._uk_english_toggle.set_checked(s.get("use_uk_english", False), animate=False)
 
         # Hotkey
         hotkey = s.get("hotkey", "alt_r")
@@ -1362,13 +1320,6 @@ class SettingsWindow(QWidget):
         s.set("openai_api_key", oai_key)
         s.set("groq_api_key", groq_key)
         s.set("groq_live_interval", self._interval_combo.currentIndex() + 1)
-        s.set(
-            "transcription_mode",
-            "api" if self._mode_seg.selected_index() == 0 else "local",
-        )
-
-        sizes = ["tiny", "base", "small", "medium"]
-        s.set("local_model_size", sizes[self._model_combo.currentIndex()])
 
         lang_idx = self._lang_combo.currentIndex()
         s.set("language", self._lang_combo.itemData(lang_idx) or "auto")
@@ -1384,7 +1335,6 @@ class SettingsWindow(QWidget):
         ai_styles = ["structured", "condensed", "bullets", "prompt"]
         s.set("ai_format_style", ai_styles[self._ai_style_seg.selected_index()])
         s.set("ai_show_original", self._ai_show_original_toggle.is_checked())
-        s.set("use_uk_english", self._uk_english_toggle.is_checked())
 
         s.save()
         self.settings_saved.emit()

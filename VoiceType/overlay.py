@@ -3,6 +3,7 @@
 # States: IDLE, RECORDING, LIVE_TRANSCRIBING, RESULT_FIELD, RESULT_NOTEPAD
 # Pill + connector + notepad — warm coral accent, surface bg.
 
+import logging
 import math
 import time
 from enum import Enum, auto
@@ -2299,7 +2300,7 @@ class OverlayWindow(QWidget):
             return
         active = QApplication.activeWindow()
         if active is not self and active is not None:
-            print(f"[Overlay] Focus lost → dismissing (active={type(active).__name__})")
+            logging.getLogger("scribr.overlay").debug("Focus lost, dismissing (active=%s)", type(active).__name__)
             self._notepad.clear_text()
             self.transition_to(OverlayState.IDLE)
 

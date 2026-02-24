@@ -31,8 +31,4 @@ requests>=2.31.0
 pyperclip==1.8.2
 
 # App packaging (build distributable .app bundle)
-py2app==0.28.7
-
-# --- OPTIONAL: Local offline Whisper ---
-openai-whisper==20231117
-torch==2.1.0
+pyinstaller==6.3.0

@@ -5,8 +5,9 @@
 # Supports light + dark mode via the theme() function which checks
 # macOS system appearance. Every paintEvent should call t = theme()
 # to get the current colour palette.
-
 from __future__ import annotations
+
+import logging
 
 from dataclasses import dataclass
 
@@ -161,7 +162,7 @@ def load_fonts() -> None:
     for ttf in _FONTS_DIR.glob("*.ttf"):
         font_id = QFontDatabase.addApplicationFont(str(ttf))
         if font_id < 0:
-            print(f"[style] WARNING: Failed to load font {ttf.name}")
+            logging.getLogger("scribr.style").warning("Failed to load font %s", ttf.name)
 
 
 def font_serif(size: int, weight: int = 400, italic: bool = False) -> QFont:
