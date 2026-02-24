@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="VoiceType/assets/scribr_logo.svg" width="120" alt="Scribr Logo">
+</p>
+
 # 🎙 Scribr
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
