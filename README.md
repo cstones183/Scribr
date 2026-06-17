@@ -13,6 +13,7 @@
 <details>
 <summary>Table of Contents</summary>
 
+- [Download](#-download)
 - [Features](#-features)
 - [Architecture](#-architecture)
 - [Prerequisites](#-prerequisites)
@@ -24,6 +25,35 @@
 - [Troubleshooting](#-troubleshooting)
 - [License](#-license)
 </details>
+
+---
+
+## ⬇️ Download
+
+Grab the latest packaged build from the [Releases page](https://github.com/cstones183/Voice-to-Text/releases/latest). Download `Scribr.dmg`, open it, and drag Scribr into Applications.
+
+The build is **Apple Silicon (arm64)** only. Intel Macs need to run from source (see Getting Started).
+
+### Opening it the first time (the security warning is expected)
+
+Scribr is **not code-signed or notarized by Apple**, so the first time you open it macOS will show a warning like *"Scribr can't be opened because Apple cannot check it for malicious software."* This is normal for open-source apps distributed outside the App Store, and it is safe to bypass. You only have to do this once.
+
+1. In Finder, open your **Applications** folder and find **Scribr**.
+2. **Right-click** (or Control-click) it and choose **Open**.
+3. In the dialog, click **Open** again.
+
+If you already double-clicked and got the warning with no Open button, go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the Scribr message.
+
+After that, Scribr launches normally every time. On first launch, grant **Microphone** and **Accessibility / Input Monitoring** when prompted; the welcome screen has a button that takes you straight there.
+
+Releases are built automatically by GitHub Actions. To cut one, push a version tag:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+That triggers the [`Build & Release DMG`](.github/workflows/release.yml) workflow, which builds the app on a macOS runner and publishes the DMG to a new Release. You can also run the workflow manually from the Actions tab to get a DMG as a downloadable build artifact without creating a Release.
 
 ---
 

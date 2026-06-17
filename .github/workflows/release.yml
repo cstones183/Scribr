@@ -1,0 +1,85 @@
+name: Build & Release DMG
+
+# Builds Scribr.app on a macOS runner and packages it as a DMG.
+#
+#  - Push a tag like v1.0.0  -> builds and publishes a GitHub Release with the DMG attached.
+#  - Run manually (Actions tab -> Run workflow) -> builds and uploads the DMG as a
+#    downloadable workflow artifact (no Release created).
+#
+# Note: the produced app is Apple Silicon (arm64) only and is NOT code-signed or
+# notarized, so downloaders will see a Gatekeeper warning on first launch
+# (right-click -> Open, or allow it under Privacy & Security). See the README
+# for how to add Developer ID signing + notarization later.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write  # needed to create the Release and upload assets
+
+jobs:
+  build:
+    runs-on: macos-14  # Apple Silicon
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r VoiceType/requirements.txt
+
+      - name: Build Scribr.app
+        working-directory: VoiceType
+        run: pyinstaller Scribr.spec --clean --noconfirm
+
+      - name: Package DMG
+        working-directory: VoiceType
+        run: |
+          brew install create-dmg
+          rm -f dist/Scribr.dmg
+          # create-dmg gives the nice drag-to-Applications layout. It can be
+          # flaky on headless runners, so fall back to a plain hdiutil image.
+          create-dmg \
+            --volname "Scribr" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "Scribr.app" 175 200 \
+            --app-drop-link 425 200 \
+            --no-internet-enable \
+            "dist/Scribr.dmg" \
+            "dist/Scribr.app" \
+          || hdiutil create -volname "Scribr" -srcfolder "dist/Scribr.app" \
+               -ov -format UDZO "dist/Scribr.dmg"
+
+      - name: Upload DMG as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Scribr-dmg
+          path: VoiceType/dist/Scribr.dmg
+          if-no-files-found: error
+
+      - name: Publish Release (tagged builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VoiceType/dist/Scribr.dmg
+          generate_release_notes: true
+          body: |
+            Download **Scribr.dmg** below, open it, and drag Scribr to Applications.
+            This build is Apple Silicon (arm64) only.
+
+            **First launch:** Scribr is not signed or notarized by Apple, so macOS
+            will warn that it "can't be checked for malicious software." This is
+            expected and safe to bypass. Right-click Scribr in Applications and
+            choose **Open**, then click **Open** again. (Or allow it under System
+            Settings → Privacy & Security with **Open Anyway**.) You only do this once.

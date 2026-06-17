@@ -1863,6 +1863,7 @@ class OverlayWindow(QWidget):
             self._idle_container,
             self._rec_container,
             self._live_container,
+            self._final_container,
             self._np_pill_container,
             self._success_container,
         ):

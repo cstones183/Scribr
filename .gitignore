@@ -45,7 +45,7 @@ API_KEYS
 # Project Specific
 VoiceType/build/
 VoiceType/dist/
-VoiceType/Scribr.spec
-Scribr.spec
 build/
 dist/
+# Note: Scribr.spec is intentionally tracked so CI (GitHub Actions) can build
+# the app. Build outputs (build/, dist/, *.dmg) remain ignored.
