@@ -9,7 +9,7 @@ from history import HistoryManager
 from PyQt6.QtCore import QObject, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
-from style import qcolor_to_rgba, theme
+from style import asset_path, qcolor_to_rgba, theme
 
 
 def _load_icon(path: str, is_template: bool = False) -> QIcon:
@@ -30,6 +30,8 @@ class ScribrMenubar(QObject):
 
     record_toggled = pyqtSignal(bool)
     open_settings = pyqtSignal()
+    open_welcome = pyqtSignal()
+    open_logs = pyqtSignal()
     test_mic = pyqtSignal()
     history_clicked = pyqtSignal(dict)
 
@@ -42,9 +44,9 @@ class ScribrMenubar(QObject):
         self._recording = False
 
         # Pre-render icons
-        self._icon_idle = _load_icon("assets/menubar_idle.png", is_template=True)
+        self._icon_idle = _load_icon(asset_path("assets", "menubar_idle.png"), is_template=True)
         # Using QIcon to dynamically read retina scaling, then freezing the pixmap size
-        self._icon_rec = QIcon("assets/menubar_recording.png")
+        self._icon_rec = QIcon(asset_path("assets", "menubar_recording.png"))
         self._pix_rec = self._icon_rec.pixmap(22, 22)
 
         # Animation states
@@ -180,6 +182,17 @@ class ScribrMenubar(QObject):
             test_action.triggered.connect(self.test_mic.emit)
         self._menu.addSeparator()
 
+        # Welcome / Help
+        welcome_action = self._menu.addAction("\U0001f44b  Welcome & Help")
+        if welcome_action:
+            welcome_action.triggered.connect(self.open_welcome.emit)
+
+        # Open Logs
+        logs_action = self._menu.addAction("\U0001f4c4  Open Logs")
+        if logs_action:
+            logs_action.triggered.connect(self.open_logs.emit)
+        self._menu.addSeparator()
+
         # Quit
         quit_action = self._menu.addAction("\u2715  Quit Scribr")
         if quit_action:
@@ -248,6 +261,8 @@ class ScribrMenubar(QObject):
                 )
 
     def set_transcribing(self) -> None:
+        # Static icon while transcribing — no need to keep the 60fps timer running.
+        self._anim_timer.stop()
         self._anim_state = self._anim_state.STATIC_BUSY
         self._tray.setIcon(self._icon_rec)
         self._tray.setToolTip("Scribr \u2014 Transcribing...")
@@ -274,6 +289,7 @@ class ScribrMenubar(QObject):
     # ─────────────────────────────────────────────────────
 
     def _on_record_click(self) -> None:
-        new_state = not self._recording
-        self.set_recording(new_state)
-        self.record_toggled.emit(new_state)
+        # Let the app drive the icon state via set_recording/set_transcribing/
+        # set_idle once it confirms the action, so the menubar never shows a
+        # recording state the app didn't actually enter.
+        self.record_toggled.emit(not self._recording)

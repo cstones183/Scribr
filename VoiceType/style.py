@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from dataclasses import dataclass
 
@@ -143,10 +144,33 @@ def should_reduce_motion() -> bool:
 
 
 # ════════════════════════════════════════════════════════════
+#  ASSET PATH RESOLVER
+# ════════════════════════════════════════════════════════════
+
+def _base_dir() -> Path:
+    """Return the base directory for asset lookups.
+
+    When running from a PyInstaller bundle, assets live under
+    sys._MEIPASS.  During development, they live next to this file.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).parent
+
+
+def asset_path(*parts: str) -> str:
+    """Resolve an asset path that works in both dev and frozen mode.
+
+    Usage: asset_path("assets", "menubar_idle.png")
+    """
+    return str(_base_dir().joinpath(*parts))
+
+
+# ════════════════════════════════════════════════════════════
 #  TYPOGRAPHY
 # ════════════════════════════════════════════════════════════
 
-_FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
+_FONTS_DIR = _base_dir() / "assets" / "fonts"
 _fonts_loaded = False
 
 

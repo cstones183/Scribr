@@ -8,11 +8,23 @@ from ApplicationServices import (
     AXUIElementCopyAttributeValue,
 )
 
+try:
+    from ApplicationServices import AXUIElementSetMessagingTimeout
+except ImportError:  # older pyobjc
+    AXUIElementSetMessagingTimeout = None
+
+# Hard cap on how long any single Accessibility query may block. Without this,
+# querying the focused element of a slow/unresponsive app can stall for the
+# system default (~6s) on the calling thread and freeze the app.
+_AX_TIMEOUT_S = 0.5
+
 
 def is_text_field_focused() -> bool:
     """Returns True if the user currently has an editable text input focused."""
     try:
         system_wide = AXUIElementCreateSystemWide()
+        if AXUIElementSetMessagingTimeout is not None:
+            AXUIElementSetMessagingTimeout(system_wide, _AX_TIMEOUT_S)
 
         # Get focused UI element (3rd arg is pass-by-reference out pointer → None)
         err, focused = AXUIElementCopyAttributeValue(
@@ -20,6 +32,8 @@ def is_text_field_focused() -> bool:
         )
         if err != 0 or not focused:
             return False
+        if AXUIElementSetMessagingTimeout is not None:
+            AXUIElementSetMessagingTimeout(focused, _AX_TIMEOUT_S)
 
         # 1. AXSelectedTextRange — universal marker for editable text.
         #    Present on NSTextField, NSTextView, Chrome/Safari <input>/<textarea>,

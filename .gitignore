@@ -39,6 +39,9 @@ secrets.json
 API_KEYS
 *.pem
 
+# Build artifacts
+*.dmg
+
 # Project Specific
 VoiceType/build/
 VoiceType/dist/

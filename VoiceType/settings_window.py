@@ -807,7 +807,7 @@ class SettingsWindow(QWidget):
         shortcut_card.add_row(
             _card_row(
                 "Record Shortcut",
-                "Hold to record \u00b7 release to transcribe",
+                "Tap to start \u00b7 tap again to stop",
                 self._hotkey_combo,
             )
         )
@@ -1073,7 +1073,7 @@ class SettingsWindow(QWidget):
         # widget at sizeHint width, causing height to be halved and text to clip.
         # Instead, center via a wrapper HBoxLayout with stretches on both sides.
         desc = QLabel(
-            "Hold Right \u2325 to record. Release to transcribe.\n"
+            "Tap Right \u2325 to record. Tap again to transcribe.\n"
             "Your words appear ready to share."
         )
         desc.setFont(font_serif(14, 400, italic=True))

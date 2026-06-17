@@ -1,10 +1,7 @@
 # Scribr — macOS Voice-to-Text Menubar App
 # Install with: pip install -r requirements.txt
 
-# Menubar app framework
-rumps==0.4.0
-
-# Global hotkey listener (hold/release detection)
+# Global hotkey listener (tap-to-toggle detection)
 pynput==1.7.6
 
 # Microphone audio capture
@@ -25,7 +22,7 @@ pyobjc-framework-Cocoa
 openai==1.54.0
 
 # HTTP client for Groq API (ultra-fast Whisper transcription)
-requests>=2.31.0
+requests==2.31.0
 
 # Clipboard access
 pyperclip==1.8.2

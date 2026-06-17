@@ -140,6 +140,7 @@ class OverlayState(Enum):
     IDLE = auto()
     RECORDING = auto()
     LIVE_TRANSCRIBING = auto()
+    FINALIZING = auto()  # stop pressed — transcribing the full buffer
     RESULT_FIELD = auto()
     RESULT_NOTEPAD = auto()
 
@@ -221,6 +222,72 @@ class PulsingDot(QWidget):
         # Core dot
         p.setBrush(self._color)
         p.drawEllipse(QPointF(cx, cy), 3.5 * s, 3.5 * s)
+        p.end()
+
+
+# ════════════════════════════════════════════════════════════
+#  SPINNER
+# ════════════════════════════════════════════════════════════
+
+
+class Spinner(QWidget):
+    """A small rotating arc shown while finalizing/transcribing.
+
+    Gives immediate feedback that the stop press registered, replacing the
+    running clock so the pill never looks like it is still recording.
+    """
+
+    def __init__(self, color: QColor | None = None, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(15, 15)
+        t = theme()
+        self._color = QColor(color if color is not None else t.red)
+        self._angle = 0.0
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)  # ~60fps
+        self._timer.timeout.connect(self._tick)
+
+    def set_color(self, color: QColor):
+        self._color = QColor(color)
+        self.update()
+
+    def start(self):
+        if should_reduce_motion():
+            # Static three-quarter arc when motion is reduced.
+            self._angle = 0.0
+            self.update()
+            self.show()
+            return
+        self._timer.start()
+        self.show()
+
+    def stop(self):
+        self._timer.stop()
+        self.hide()
+
+    def _tick(self):
+        self._angle = (self._angle + 6.0) % 360.0
+        self.update()
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = QRectF(2, 2, 11, 11)
+        # Track
+        track = QColor(self._color)
+        track.setAlpha(45)
+        pen = QPen(track, 2.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.drawEllipse(rect)
+
+        # Rotating 270° arc
+        pen.setColor(self._color)
+        p.setPen(pen)
+        start_angle = int(-self._angle * 16)
+        p.drawArc(rect, start_angle, 270 * 16)
         p.end()
 
 
@@ -1215,6 +1282,8 @@ class NotepadWidget(QWidget):
 class OverlayWindow(QWidget):
     """Pill + connector + notepad system. Always bottom-centre of screen."""
 
+    cancelRecordingClicked = pyqtSignal()
+    notepadCloseClicked = pyqtSignal()
     rms_received = pyqtSignal(float)
     transcript_received = pyqtSignal(str)
     request_ai_format = pyqtSignal(str)
@@ -1437,7 +1506,7 @@ class OverlayWindow(QWidget):
         idle_l.setSpacing(10)
         self._idle_dot = PulsingDot(t.text_light, self._idle_container)
         idle_l.addWidget(self._idle_dot)
-        self._idle_label = QLabel("Hold Right \u2325 to record")
+        self._idle_label = QLabel("Tap Right \u2325 to record")
         self._idle_label.setFont(font_sans(13, 500))
         idle_label_color = qcolor_to_rgba(t.text_mid)
         self._idle_label.setStyleSheet(f"color: {idle_label_color};")
@@ -1460,6 +1529,29 @@ class OverlayWindow(QWidget):
         timer_color = qcolor_to_rgba(t.text_light)
         self._timer_label.setStyleSheet(f"color: {timer_color}; letter-spacing: 0.2px;")
         rec_l.addWidget(self._timer_label)
+
+        # Cancel recording button
+        self._rec_cancel_btn = QPushButton("✕")
+        self._rec_cancel_btn.setFixedSize(20, 20)
+        border_rgba = qcolor_to_rgba(t.border)
+        text_light_rgba = qcolor_to_rgba(t.text_light)
+        text_rgba = qcolor_to_rgba(t.text)
+        surface_2_rgba = qcolor_to_rgba(t.surface_2)
+        self._rec_cancel_btn.setStyleSheet(
+            "QPushButton {"
+            f"  background-color: {surface_2_rgba};"
+            f"  border: 1px solid {border_rgba};"
+            "  border-radius: 10px;"
+            f"  color: {text_light_rgba}; font-size: 9px;"
+            "  outline: 0;"
+            "}"
+            f"QPushButton:hover {{ background-color: {border_rgba}; color: {text_rgba}; }}"
+        )
+        self._rec_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rec_cancel_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._rec_cancel_btn.clicked.connect(self.cancelRecordingClicked.emit)
+        rec_l.addWidget(self._rec_cancel_btn)
+
         self._rec_container.hide()
         pill_layout.addWidget(self._rec_container)
 
@@ -1490,6 +1582,20 @@ class OverlayWindow(QWidget):
         live_l.addWidget(self._live_timer_label)
         self._live_container.hide()
         pill_layout.addWidget(self._live_container)
+
+        # -- Finalizing state (spinner + label) --
+        self._final_container = QWidget()
+        fin_l = QHBoxLayout(self._final_container)
+        fin_l.setContentsMargins(0, 0, 0, 0)
+        fin_l.setSpacing(10)
+        self._spinner = Spinner(t.red, self._final_container)
+        fin_l.addWidget(self._spinner)
+        self._final_label = QLabel("Transcribing…")
+        self._final_label.setFont(font_sans(13, 500))
+        self._final_label.setStyleSheet(f"color: {qcolor_to_rgba(t.text)};")
+        fin_l.addWidget(self._final_label)
+        self._final_container.hide()
+        pill_layout.addWidget(self._final_container)
 
         # -- Notepad pill state (grey dot + label) --
         self._np_pill_container = QWidget()
@@ -1548,7 +1654,7 @@ class OverlayWindow(QWidget):
             self._on_transcript_update, Qt.ConnectionType.QueuedConnection
         )
         self._notepad.copyCloseClicked.connect(self._on_copy_close)
-        self._notepad.closeClicked.connect(lambda: self.transition_to(OverlayState.IDLE))
+        self._notepad.closeClicked.connect(self._on_notepad_close_clicked)
         self._notepad.aiToggleClicked.connect(self._on_ai_toggle_request)
 
     @pyqtSlot(float)
@@ -1570,6 +1676,11 @@ class OverlayWindow(QWidget):
             preview = " ".join(words[-4:])
             self._live_text.setText(preview)
             self._notepad.set_text(text)
+
+    def _on_notepad_close_clicked(self):
+        """Handle notepad X button — stop recording if active, then dismiss."""
+        self.notepadCloseClicked.emit()
+        self.transition_to(OverlayState.IDLE)
 
     def _on_copy_close(self, text: str):
         clipboard = QApplication.clipboard()
@@ -1614,8 +1725,12 @@ class OverlayWindow(QWidget):
     @pyqtSlot()
     def on_ai_format_failed(self):
         if self._state == OverlayState.RESULT_NOTEPAD:
-            self._notepad._ai_toggle.set_checked(False)
-            self._notepad.show_raw()
+            self._notepad.show_ai_result(
+                "⚠️ AI formatting failed (not enough context or connectivity issue).\nUsing raw text instead.",
+                show_original=True
+            )
+            # Make sure toggle stays "ON" visually so they see the error mode,
+            # or we could uncheck it. Leaving it visually checked implies we *did* process it, it just failed.
             self._animate_notepad_bounce()
 
     def _animate_notepad_bounce(self):
@@ -2022,6 +2137,7 @@ class OverlayWindow(QWidget):
             OverlayState.IDLE: self._enter_idle,
             OverlayState.RECORDING: self._enter_recording,
             OverlayState.LIVE_TRANSCRIBING: self._enter_live_transcribing,
+            OverlayState.FINALIZING: self._enter_finalizing,
             OverlayState.RESULT_FIELD: self._enter_result_field,
             OverlayState.RESULT_NOTEPAD: self._enter_result_notepad,
         }
@@ -2033,6 +2149,7 @@ class OverlayWindow(QWidget):
             OverlayState.IDLE: self._idle_container,
             OverlayState.RECORDING: self._rec_container,
             OverlayState.LIVE_TRANSCRIBING: self._live_container,
+            OverlayState.FINALIZING: self._final_container,
             OverlayState.RESULT_FIELD: self._success_container,
             OverlayState.RESULT_NOTEPAD: self._np_pill_container,
         }[state]
@@ -2047,6 +2164,7 @@ class OverlayWindow(QWidget):
         self._success_dot.stop()
         self._idle_dot.stop()
         self._live_cursor.stop()
+        self._spinner.stop()
         self._clock_timer.stop()
 
     def get_notepad_text(self) -> str:
@@ -2057,6 +2175,7 @@ class OverlayWindow(QWidget):
         self._idle_container.hide()
         self._rec_container.hide()
         self._live_container.hide()
+        self._final_container.hide()
         self._np_pill_container.hide()
         self._success_container.hide()
         self._stop_pill_peripherals()
@@ -2182,6 +2301,32 @@ class OverlayWindow(QWidget):
             self._connector.setFixedHeight(CONNECTOR_HEIGHT)
             self._connector_h = float(CONNECTOR_HEIGHT)
             self._start_streaming()
+
+    def _enter_finalizing(self, from_state, **kwargs):
+        """Stop was pressed — show the spinner while the buffer transcribes.
+
+        Stops the running clock immediately so the pill never looks like it
+        is still recording, and gives instant feedback the tap registered.
+        """
+        self._stop_animations()
+        self._stop_pill_peripherals()  # stops the clock + recording animations
+
+        self._spinner.start()
+        self._set_pill_shadow_active()
+
+        # If Groq live-transcription already dropped the notepad open with
+        # partial text, keep it on screen; the streamed text stays visible
+        # until the final result replaces it. Otherwise show just the pill.
+        if from_state == OverlayState.LIVE_TRANSCRIBING:
+            self._stop_streaming()
+        else:
+            self._hide_notepad_instant()
+
+        old_container = self._container_for_state(from_state) if from_state else None
+        self._crossfade_pill_state(old_container, self._final_container)
+
+        self.show()
+        self._reposition()
 
     def _enter_result_field(self, from_state, text: str = "", **kwargs):
         t = theme()

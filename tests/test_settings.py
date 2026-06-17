@@ -16,13 +16,23 @@ def tmp_settings(tmp_path: Path) -> Path:
     return tmp_path / "settings.json"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_migration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Stop the one-time legacy migration from reading the real user's
+    ~/Library/Application Support/VoiceType during tests, which would make
+    default-value assertions depend on the developer's machine."""
+    monkeypatch.setattr("settings._OLD_SUPPORT_DIR", tmp_path / "no_old_support")
+
+
 class TestAppSettings:
     def test_defaults(self) -> None:
         s = AppSettings()
-        assert s.transcription_mode == "api"
+        assert s.language == "en"
         assert s.ai_cleanup is True
         assert s.reduce_motion is False
         assert s.groq_live_interval == 2
+        assert s.show_welcome_on_launch is True
+        assert s.accessibility_prompted is False
         # Removed providers should not exist
         assert not hasattr(s, "deepgram_api_key")
         assert not hasattr(s, "assemblyai_api_key")
@@ -85,13 +95,13 @@ class TestSettingsManager:
         mgr = SettingsManager(path=tmp_settings)
         d = mgr.as_dict()
         d["language"] = "MUTATED"
-        assert mgr.get("language") == "auto"  # original unaffected
+        assert mgr.get("language") == "en"  # original unaffected
 
     def test_load_handles_corrupt_json(self, tmp_settings: Path) -> None:
         tmp_settings.parent.mkdir(parents=True, exist_ok=True)
         tmp_settings.write_text("{corrupt json!!")
         mgr = SettingsManager(path=tmp_settings)
-        assert mgr.get("language") == "auto"  # fell back to defaults
+        assert mgr.get("language") == "en"  # fell back to defaults
 
     def test_save_is_atomic(self, tmp_settings: Path) -> None:
         mgr = SettingsManager(path=tmp_settings)

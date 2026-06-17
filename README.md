@@ -29,13 +29,14 @@
 
 ## ✨ Features
 
-- **Push-to-Talk**: Hold **Right ⌥ (Right Option)** to record, and release to transcribe instantly.
+- **Tap-to-Talk**: Tap **Right ⌥ (Right Option)** to start recording, tap again to transcribe.
 - **Direct Injection**: Text is automatically pasted directly into your currently focused text field using macOS Accessibility Context mapping and simulated keystrokes.
 - **Floating Notepad**: If no text field is focused, a sleek floating UI appears with your transcription, which is automatically copied to your clipboard.
 - **AI Formatting & Correction**: Utilizes GPT-4o-mini to automatically remove filler words, format specific styles (like structured prompts), or clean up grammar.
-- **Ultra-Fast Transcription**: Support for Groq's high-speed Whisper endpoints, standard OpenAI fallback, and optional offline local Whisper models.
+- **Ultra-Fast Transcription**: Support for Groq's high-speed Whisper endpoints, with a standard OpenAI fallback.
+- **Welcome Screen**: A first-launch guide that points you to where API keys go and helps you grant the macOS permissions.
 - **Native macOS Experience**: Runs identically to a native Application, completely stripped from your Dock and managed via the OS Menubar.
-- **Hardware-Accelerated UI**: Built heavily with PyQt6 for 60fps wave animations and loading spinners.
+- **Hardware-Accelerated UI**: Built heavily with PyQt6 for 60fps wave animations and a finalizing spinner that confirms the moment you stop recording.
 
 ---
 
@@ -50,7 +51,7 @@ VoiceType/
 ├── history.py              # SQLite/File-based transcription history module
 ├── hotkey.py               # pynput global keyboard hooks
 ├── recorder.py             # Audio capture and RMS visualization parsing
-├── transcriber.py          # Whisper API controllers (Groq, OpenAI, Local)
+├── transcriber.py          # Whisper API controllers (Groq, OpenAI)
 ├── corrector.py            # Post-processing GPT prompts (Prompt Mode, Formatting)
 ├── overlay.py              # PyQt6 frameless transparent UI window
 ├── context_detector.py     # OS-level active text-box detection (Accessibility API)
@@ -63,9 +64,9 @@ VoiceType/
 
 - **macOS** 12.0 or later (Monterey+)
 - **Python** 3.9+ (3.11 recommended)
-- **API Keys**:
-  - `gsk_...` Groq API Key (for high-speed transcription)
-  - `sk-...` OpenAI API Key (for GPT-4o-mini text correction/formatting)
+- **API Keys** (you need at least one to transcribe):
+  - `gsk_...` Groq API Key for high-speed transcription and live preview. Get one at [console.groq.com/keys](https://console.groq.com/keys)
+  - `sk-...` OpenAI API Key for GPT-4o-mini text cleanup and formatting. Get one at [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
 
 ---
 
@@ -95,29 +96,30 @@ python3.11 VoiceType/app.py
 
 ## ⚙️ Configuration & Settings
 
-Settings are stored in the user preferences hierarchy (`~/Library/Application Support/Scribr/settings.json`) and managed cleanly inside the app. 
+Settings, including your API keys, are stored in `~/Library/Application Support/Scribr/settings.json` and managed inside the app. This file stays on your machine and is listed in `.gitignore`, so your keys are never committed.
+
 To link your APIs:
 1. Click the Scribr icon in the macOS menubar.
-2. Click **Settings**.
-3. Input your API keys and select your specific AI behaviors (Prompt Generation, UK English grammar enforcement, etc.).
+2. Click **Settings**, or use the **Open Settings to add keys** button on the welcome screen.
+3. Input your API keys and select your AI behaviours (prompt generation, UK English grammar enforcement, and so on).
 
 ---
 
 ## 🎮 Usage
 
-1. **Activate**: Hold down the **Right ⌥ (Right Option)** key and speak.
-2. **Process**: Release the key. Scribr will instantly transcribe the audio stream in parallel.
+1. **Start**: Tap the **Right ⌥ (Right Option)** key once and speak.
+2. **Stop**: Tap **Right ⌥** again. The recording timer turns into a spinner while Scribr transcribes the audio.
 3. **Execution Contexts**:
    - **Text Field Focused**: Scribr will instantly simulate `Cmd+V`, pasting the output seamlessly into your current webpage, document, or terminal.
-   - **No Text Field Focused**: The internal Notepad will retain the transcription, keeping it securely on your macOS Clipboard.
+   - **No Text Field Focused**: The internal Notepad will retain the transcription, keeping it on your macOS Clipboard.
 
 ---
 
 ## 🔒 Permissions
 
-Scribr requires two distinct permissions to function optimally on macOS. Upon the first boot, macOS will traditionally throw prompts, but you can manually toggle these in `System Settings → Privacy & Security`:
+Scribr requires two permissions on macOS. On the first launch it asks for them once, and the welcome screen offers a **Grant permissions** button. After that Scribr never re-prompts on startup. You can always toggle them manually in `System Settings → Privacy & Security`:
 1. **Microphone**: Needed to capture your voice.
-2. **Accessibility**: Needed for `hotkey.py` to globally intercept your Option key, and for `context_detector.py` to verify if your current window cursor provides `AXTextField` status.
+2. **Accessibility / Input Monitoring**: Needed for `hotkey.py` to globally detect your Option key, and for `context_detector.py` to check whether the focused element is a text field.
 
 ---
 
@@ -136,12 +138,14 @@ The resulting `Scribr.app` will be populated into the `/dist` directory. Due to 
 
 ## 🆘 Troubleshooting
 
-- **Audio not transcribing / App stays "Listening..." forever** 
-  macOS might have revoked Microphone access. Check `System Settings -> Microphone`.
+- **Audio not transcribing** 
+  macOS might have revoked Microphone access. Check `System Settings -> Microphone`. You can also grab logs from the menubar via **Open Logs** when reporting an issue.
 - **Text does not auto-paste**
   Ensure the app has **Accessibility** privileges. This is strictly required for the simulated `Cmd+V` keyboard macros.
 - **Python script crashes on boot**
   Ensure you are using at least `Python 3.9` and that PyQt6 is correctly installed in your current active `venv`.
+- **More detail when reporting bugs**
+  Run with `SCRIBR_DEBUG=1` to capture verbose logs, then open them with **Open Logs** in the menubar.
 
 ---
 

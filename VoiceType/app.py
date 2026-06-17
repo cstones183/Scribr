@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import os
 import sys
 import traceback
 import threading
@@ -12,11 +13,14 @@ import time
 from pathlib import Path
 
 # ── Logging setup ─────────────────────────────────────
+# Default to INFO for a release build; set SCRIBR_DEBUG=1 to capture verbose
+# DEBUG logs (which may include short transcript snippets) for troubleshooting.
 _LOG_DIR = Path.home() / "Library" / "Logs" / "Scribr"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
+_LOG_LEVEL = logging.DEBUG if os.environ.get("SCRIBR_DEBUG") else logging.INFO
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=_LOG_LEVEL,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.handlers.RotatingFileHandler(
@@ -44,6 +48,7 @@ from recorder import Recorder
 from settings import SettingsManager
 from stats import StatsManager
 from settings_window import SettingsWindow
+from welcome_window import WelcomeWindow
 from transcriber import (
     GroqTranscriber,
     OpenAITranscriber,
@@ -51,7 +56,7 @@ from transcriber import (
 )
 
 from pynput.keyboard import Controller, Key
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 
@@ -63,8 +68,7 @@ class _ThreadBridge(QObject):
     transcription_error = pyqtSignal()
     ai_format_completed = pyqtSignal(str)
     ai_format_failed = pyqtSignal()
-    hotkey_pressed = pyqtSignal()
-    hotkey_released = pyqtSignal()
+    hotkey_toggled = pyqtSignal(bool)  # True = start, False = stop
 
 
 class ScribrApp:
@@ -89,6 +93,7 @@ class ScribrApp:
 
         # ── Settings window (lazy) ──
         self._settings_window: SettingsWindow | None = None
+        self._welcome_window: WelcomeWindow | None = None
 
         # ── Overlay ──
         self._overlay = OverlayWindow(
@@ -98,6 +103,8 @@ class ScribrApp:
         # ── Menubar ──
         self._menubar = ScribrMenubar(history=self._history)
         self._menubar.open_settings.connect(self._show_settings_window)
+        self._menubar.open_welcome.connect(self._show_welcome_window)
+        self._menubar.open_logs.connect(self._open_logs)
         self._menubar.record_toggled.connect(self._on_record_toggle)
         self._menubar.test_mic.connect(self._on_test_mic)
         self._menubar.history_clicked.connect(self._on_history_clicked)
@@ -108,12 +115,14 @@ class ScribrApp:
 
         # ── Hotkey ──
         self._hotkey = HotkeyListener(
-            on_press=self._on_hotkey_press,
-            on_release=self._on_hotkey_release,
+            on_toggle=self._on_hotkey_toggle,
             on_permission_error=self._on_permission_error,
             key_name=self._settings.get("hotkey", "alt_r"),
         )
         self._hotkey.start()
+
+        # ── First-launch permission checks ──
+        self._check_permissions()
 
         # ── Transcriber / corrector (built from settings) ──
         self._transcriber: GroqTranscriber | OpenAITranscriber | None = None
@@ -130,14 +139,13 @@ class ScribrApp:
         self._bridge.transcription_error.connect(self._on_transcription_error)
         self._bridge.ai_format_completed.connect(self._on_ai_format_completed)
         self._bridge.ai_format_failed.connect(self._overlay.on_ai_format_failed)
-
-        # Hotkey signals (pynput bg thread → main thread via signal)
-        self._bridge.hotkey_pressed.connect(self._start_recording)
-        self._bridge.hotkey_released.connect(self._stop_recording)
+        self._bridge.hotkey_toggled.connect(self._on_hotkey_action)
 
         # Connect overlay's request signal
         self._overlay.request_ai_format.connect(self._on_ai_format_requested)
         self._overlay.ai_mode_toggled.connect(self._history.update_ai_mode)
+        self._overlay.cancelRecordingClicked.connect(self._on_recording_cancelled)
+        self._overlay.notepadCloseClicked.connect(self._on_recording_cancelled)
 
         # ── Groq live transcription timer ──
         self._groq_timer = QTimer()
@@ -155,6 +163,11 @@ class ScribrApp:
 
         # ── Watch for system theme changes ──
         self._watch_appearance_changes()
+
+        # ── Welcome screen (shown on launch unless the user opted out) ──
+        if self._settings.get("show_welcome_on_launch", True):
+            # Defer so the menubar/overlay finish initialising first.
+            QTimer.singleShot(400, self._show_welcome_window)
 
     # ─────────────────────────────────────────────────────
     #  PROVIDER SETUP
@@ -175,27 +188,29 @@ class ScribrApp:
         else:
             self._transcriber = None
 
-        # Corrector uses OpenAI key — needed for both ai_cleanup and AI format mode
-        openai_key = s.get("openai_api_key", "")
+        # Corrector uses the OpenAI key — needed for both ai_cleanup and AI format mode.
         if openai_key:
             self._corrector = Corrector(api_key=openai_key)
         else:
             self._corrector = None
 
     # ─────────────────────────────────────────────────────
-    #  HOTKEY CALLBACKS (pynput background thread → Qt main thread)
+    #  HOTKEY CALLBACKS (may fire from main or bg thread)
     # ─────────────────────────────────────────────────────
 
-    def _on_hotkey_press(self) -> None:
-        # Detect text field focus NOW on the pynput thread — before the
-        # modifier key event propagates and disrupts macOS AX focus state.
+    def _on_hotkey_toggle(self, recording: bool) -> None:
+        """Called by HotkeyListener when the key is tapped."""
         self._cached_typing_context = is_text_field_focused()
-        log.debug("Hotkey PRESSED (typing_context=%s)", self._cached_typing_context)
-        self._bridge.hotkey_pressed.emit()
+        log.debug("Hotkey TOGGLE → %s (typing_context=%s)", recording, self._cached_typing_context)
+        # Marshal to Qt main thread via signal
+        self._bridge.hotkey_toggled.emit(recording)
 
-    def _on_hotkey_release(self) -> None:
-        log.debug("Hotkey RELEASED")
-        self._bridge.hotkey_released.emit()
+    def _on_hotkey_action(self, recording: bool) -> None:
+        """Runs on the Qt main thread after hotkey toggle signal."""
+        if recording:
+            self._start_recording()
+        else:
+            self._stop_recording()
 
     # ─────────────────────────────────────────────────────
     #  RECORDING START / STOP (main thread)
@@ -215,6 +230,8 @@ class ScribrApp:
             
         self._is_recording = True
         self._recording_start = time.time()
+        # Keep the hotkey's toggle state in lock-step so the next tap stops.
+        self._hotkey.set_active(True)
 
         log.info("Starting recording...")
         self._overlay.set_is_typing_context(
@@ -242,31 +259,48 @@ class ScribrApp:
         if not self._is_recording:
             return
         self._is_recording = False
-
+        # Keep the hotkey's toggle state in lock-step so the next tap starts.
+        self._hotkey.set_active(False)
         self._groq_timer.stop()
-        wav_bytes = self._recorder.stop()
+
         duration = time.time() - self._recording_start
         self._total_duration += duration
-        
         api_cost = 0.0
         if isinstance(self._transcriber, OpenAITranscriber):
             api_cost = (duration / 60.0) * 0.006
         self._stats.add_clip(duration, api_cost)
+        log.info("Stopped recording (%.1fs, total=%.1fs)", duration, self._total_duration)
 
-        log.info("Stopped recording (%.1fs, total=%.1fs, %d bytes)", duration, self._total_duration, len(wav_bytes))
-        self._menubar.set_transcribing()
-
-        if isinstance(self._transcriber, GroqTranscriber):
-            # Groq: final transcription of full buffer
-            self._transcribe_in_background(wav_bytes)
-        elif isinstance(self._transcriber, OpenAITranscriber):
-            # OpenAI: single transcription after release
-            self._overlay.transition_to(OverlayState.LIVE_TRANSCRIBING, is_continuing=self._is_continuing)
-            self._transcribe_in_background(wav_bytes)
-        else:
-            # No transcriber configured
+        if self._transcriber is None:
+            # No transcriber configured — just release the mic and reset.
+            self._recorder.stop()
             self._overlay.transition_to(OverlayState.IDLE)
             self._menubar.set_idle()
+            return
+
+        # Immediately confirm the stop in the UI — swap the running clock for the
+        # finalizing spinner so it never looks like recording is still going.
+        self._overlay.transition_to(
+            OverlayState.FINALIZING, is_continuing=self._is_continuing
+        )
+        self._menubar.set_transcribing()
+
+        # Tear down the audio stream and transcribe off the UI thread. The
+        # PortAudio stop/close can block for hundreds of ms, so it must not
+        # run on the main thread or it freezes the spinner we just showed.
+        self._transcribe_in_background(None)
+
+    def _on_recording_cancelled(self) -> None:
+        """User cancelled the recording via the UI (✕) button."""
+        if not self._is_recording:
+            return
+        log.info("Recording cancelled by user")
+        self._is_recording = False
+        self._groq_timer.stop()
+        self._recorder.stop()  # Ignore the returned bytes
+        self._hotkey.reset()   # Sync toggle state back to idle
+        self._overlay.transition_to(OverlayState.IDLE)
+        self._menubar.set_idle()
 
     # ─────────────────────────────────────────────────────
     #  GROQ LIVE TRANSCRIPTION (timer-based snapshots)
@@ -308,15 +342,23 @@ class ScribrApp:
     #  API TRANSCRIPTION (background thread)
     # ─────────────────────────────────────────────────────
 
-    def _transcribe_in_background(self, wav_bytes: bytes) -> None:
+    def _transcribe_in_background(self, wav_bytes: bytes | None) -> None:
+        """Transcribe on a background thread.
+
+        If ``wav_bytes`` is None, the worker stops the recorder itself so the
+        blocking PortAudio teardown stays off the UI thread.
+        """
         threading.Thread(
             target=self._api_transcribe_worker,
             args=(wav_bytes,),
             daemon=True,
         ).start()
 
-    def _api_transcribe_worker(self, wav_bytes: bytes) -> None:
+    def _api_transcribe_worker(self, wav_bytes: bytes | None) -> None:
         try:
+            if wav_bytes is None:
+                wav_bytes = self._recorder.stop()
+                log.debug("Recorder stopped on worker thread (%d bytes)", len(wav_bytes))
             language = self._settings.get("language", "auto")
             uk = language == "en-uk"
             prompt = "Use UK English spelling and grammar." if uk else ""
@@ -332,6 +374,11 @@ class ScribrApp:
                 self._bridge.transcription_error.emit()
         except TranscriptionError as e:
             log.warning("Transcription failed: %s", e)
+            self._bridge.transcription_error.emit()
+        except Exception:
+            # Any other failure (e.g. audio teardown) must still clear the
+            # finalizing spinner, otherwise the UI looks hung forever.
+            log.exception("Unexpected error finalizing recording")
             self._bridge.transcription_error.emit()
 
     # ─────────────────────────────────────────────────────
@@ -410,24 +457,30 @@ class ScribrApp:
             QTimer.singleShot(50, _do_paste)
 
     def _on_final_transcript(self, text: str) -> None:
-        log.info("Final transcript: %r", text[:80])
+        # Log length only at INFO to keep transcript text out of release logs.
+        log.info("Final transcript received (%d chars)", len(text))
+        log.debug("Final transcript: %r", text[:80])
 
-        # Auto-copy to clipboard
-        clipboard = QApplication.clipboard()
-        if clipboard:
-            clipboard.setText(text)
-            log.debug("Copied to clipboard")
+        is_empty = not text.strip()
+        if is_empty:
+            text = "⚠️ No speech detected. Please try again."
 
-        # Cache typing context BEFORE transitioning — overlay state may drift
-        # during AI processing (focus timer, state transitions, etc.)
+        # Cache typing context BEFORE transitioning
         is_typing = self._overlay.is_typing_context
-        is_ai = self._overlay._ai_mode_active
+        # Force AI off if there's no speech, otherwise it tries to format the error msg
+        is_ai = self._overlay._ai_mode_active if not is_empty else False
         self._pending_paste_context = is_typing and is_ai
-        log.debug("Context cache: typing=%s ai=%s pending_paste=%s", is_typing, is_ai, self._pending_paste_context)
 
-        # Add to history
-        self._history.add(text, duration_s=self._total_duration)
-        self._menubar.refresh_after_transcription()
+        if not is_empty:
+            # Auto-copy to clipboard
+            clipboard = QApplication.clipboard()
+            if clipboard:
+                clipboard.setText(text)
+                log.debug("Copied to clipboard")
+
+            # Add to history
+            self._history.add(text, duration_s=self._total_duration)
+            self._menubar.refresh_after_transcription()
 
         # ALWAYS transition to notepad first so we unroll and evaluate AI states
         self._overlay.transition_to(
@@ -437,8 +490,12 @@ class ScribrApp:
             ai_show_original=self._settings.get("ai_show_original", False),
         )
 
+        # If it was an empty message, explicitly force the notepad out of AI mode visually
+        if is_empty and self._overlay._ai_mode_active:
+             self._overlay.on_ai_format_failed()
+
         # If in a typing context AND we are not doing AI formatting, paste immediately
-        if is_typing and not is_ai:
+        if is_typing and not is_ai and not is_empty:
             def _do_paste():
                 # Simulate Cmd+V (macOS) to paste clipboard contents
                 self._keyboard.press(Key.cmd)
@@ -470,6 +527,88 @@ class ScribrApp:
             None, "Scribr — Permission Required", msg,
         )
 
+    def _accessibility_trusted(self) -> bool:
+        """Cheap, prompt-free check of Accessibility/Input Monitoring trust."""
+        try:
+            import ctypes
+
+            lib = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/ApplicationServices.framework"
+                "/ApplicationServices"
+            )
+            lib.AXIsProcessTrusted.restype = ctypes.c_bool
+            return bool(lib.AXIsProcessTrusted())
+        except Exception as e:
+            log.warning("Accessibility check error: %s", e)
+            return True  # assume OK rather than nag on a check failure
+
+    def _check_permissions(self) -> None:
+        """Startup permission check.
+
+        Never nags on every launch: the OS prompt and System Settings are only
+        triggered the first time, when permission is actually missing. After
+        that the welcome screen offers an on-demand button instead.
+        """
+        if not self._accessibility_trusted():
+            log.warning("Accessibility/Input Monitoring permission not granted")
+            if not self._settings.get("accessibility_prompted", False):
+                self.prompt_accessibility_permission()
+                self._settings.set("accessibility_prompted", True)
+                self._settings.save()
+
+        # Microphone — a brief query triggers the macOS mic prompt only when
+        # permission has not yet been decided; it is a no-op once granted.
+        try:
+            import sounddevice as sd
+            sd.query_devices(kind="input")
+        except Exception as e:
+            log.warning("Microphone permission check: %s", e)
+
+    def prompt_accessibility_permission(self) -> None:
+        """Trigger the macOS Accessibility prompt and open the right pane.
+
+        Safe to call on demand (for example from the welcome screen button).
+        """
+        import subprocess
+
+        try:
+            import ctypes
+
+            lib = ctypes.cdll.LoadLibrary(
+                "/System/Library/Frameworks/ApplicationServices.framework"
+                "/ApplicationServices"
+            )
+            try:
+                lib.AXIsProcessTrustedWithOptions.restype = ctypes.c_bool
+                lib.AXIsProcessTrustedWithOptions.argtypes = [ctypes.c_void_p]
+                from Foundation import NSDictionary  # type: ignore[import-untyped]
+                opts = NSDictionary.dictionaryWithDictionary_(
+                    {"AXTrustedCheckOptionPrompt": True}
+                )
+                lib.AXIsProcessTrustedWithOptions(
+                    ctypes.c_void_p(opts.__c_void_p__())
+                )
+            except Exception:
+                pass  # system prompt is best-effort
+
+            QMessageBox.information(
+                None,
+                "Scribr — Permission Required",
+                "Scribr needs Input Monitoring permission for the "
+                "keyboard shortcut to work.\n\n"
+                "Please enable Scribr in:\n"
+                "System Settings → Privacy & Security → Input Monitoring\n\n"
+                "You may also need to add it under Accessibility.\n"
+                "After enabling, restart Scribr.",
+                QMessageBox.StandardButton.Ok,
+            )
+            subprocess.Popen([
+                "open", "x-apple.systempreferences:"
+                "com.apple.preference.security?Privacy_ListenEvent",
+            ])
+        except Exception as e:
+            log.warning("Accessibility prompt error: %s", e)
+
     # ─────────────────────────────────────────────────────
     #  MENUBAR CALLBACKS
     # ─────────────────────────────────────────────────────
@@ -484,6 +623,19 @@ class ScribrApp:
         self._start_recording()
         QTimer.singleShot(2000, self._stop_recording)
 
+    def _open_logs(self) -> None:
+        """Reveal the Scribr log file in Finder for easy bug reporting."""
+        import subprocess
+
+        log_file = _LOG_DIR / "scribr.log"
+        try:
+            if log_file.exists():
+                subprocess.Popen(["open", "-R", str(log_file)])
+            else:
+                subprocess.Popen(["open", str(_LOG_DIR)])
+        except Exception as e:
+            log.warning("Could not open logs: %s", e)
+
     def _on_history_clicked(self, entry: dict) -> None:
         log.debug("History item clicked: %s...", entry.get("text", "")[:20])
         self._overlay.transition_to(
@@ -496,6 +648,30 @@ class ScribrApp:
     # ─────────────────────────────────────────────────────
     #  SETTINGS
     # ─────────────────────────────────────────────────────
+
+    def _show_welcome_window(self) -> None:
+        from hotkey import key_display_name
+
+        if self._welcome_window is None:
+            self._welcome_window = WelcomeWindow(
+                self._settings,
+                hotkey_label=key_display_name(self._settings.get("hotkey", "alt_r")),
+            )
+            self._welcome_window.open_settings.connect(self._show_settings_window)
+            self._welcome_window.request_permission.connect(
+                self.prompt_accessibility_permission
+            )
+        self._welcome_window.show()
+        self._welcome_window.raise_()
+        self._welcome_window.activateWindow()
+
+        screen = self._qt_app.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            self._welcome_window.adjustSize()
+            x = (geo.width() - self._welcome_window.width()) // 2 + geo.x()
+            y = (geo.height() - self._welcome_window.height()) // 3 + geo.y()
+            self._welcome_window.move(x, y)
 
     def _show_settings_window(self) -> None:
         if self._settings_window is None or not self._settings_window.isVisible():
