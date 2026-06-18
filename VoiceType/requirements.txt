@@ -12,7 +12,12 @@ numpy==1.26.0
 scipy==1.11.3
 
 # Overlay UI (smooth 60fps animations on macOS)
+# Pin the Qt runtime + sip to match the bindings. PyQt6==6.6.0 alone leaves
+# PyQt6-Qt6 unpinned, so a clean install (e.g. CI) pulls the latest Qt6 and
+# the ABI mismatch crashes the bundled app with a missing-symbol ImportError.
 PyQt6==6.6.0
+PyQt6-Qt6==6.6.3
+PyQt6-sip==13.11.0
 
 # macOS Accessibility API — detect focused text fields
 pyobjc-framework-ApplicationServices
