@@ -869,6 +869,12 @@ class NotepadWidget(QWidget):
         self._text_edit.setFont(font_serif(15, 400, italic=True))
         self._text_edit.setReadOnly(True)
         self._text_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Text wraps to the fixed notepad width — never scroll horizontally
+        # (a toggling horizontal scrollbar would shift the text sideways).
+        self._text_edit.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         b_layout.addWidget(self._text_edit)
 
         # ─── AI VERSION ─── divider (visible in show_original mode)
@@ -1009,8 +1015,18 @@ class NotepadWidget(QWidget):
     def set_text(self, text: str, animate: bool = True, **kwargs):
         if text == self._prev_text:
             return
+
+        if animate:
+            # Final result: full set + entrance bounce.
+            self._text_edit.setPlainText(text)
+        else:
+            # Live streaming: rewrite only the part that changed since the last
+            # snapshot so the already-transcribed text doesn't flash/reflow on
+            # every update. Groq may still revise the tail as it gets more
+            # context — that tail is what gets rewritten, nothing before it.
+            self._replace_changed_suffix(text)
+
         self._prev_text = text
-        self._text_edit.setPlainText(text)
         self._text_edit.setReadOnly(True)
         self._resize_text_edit(self._text_edit, max_lines=5)
 
@@ -1020,15 +1036,27 @@ class NotepadWidget(QWidget):
         if animate:
             self._animate_text_popup()
         else:
-            # Live incremental updates: update in place at full scale/opacity.
-            # Re-running the scale-bounce on every snapshot distorts inter-word
-            # spacing and flickers the text, so skip it during streaming.
+            # Keep the text fully visible (no fade) and pin the view to the
+            # newest text as it streams in.
             self.text_opacity = 1.0
-            self._text_scale = 1.0
-            self._text_translate_y = 0.0
-            vp = self._text_edit.viewport()
-            if vp:
-                vp.update()
+            sb = self._text_edit.verticalScrollBar()
+            if sb:
+                sb.setValue(sb.maximum())
+
+    def _replace_changed_suffix(self, text: str) -> None:
+        """Replace only the trailing portion of the transcript that differs
+        from what's already shown, leaving the stable prefix untouched."""
+        old = self._prev_text
+        limit = min(len(old), len(text))
+        i = 0
+        while i < limit and old[i] == text[i]:
+            i += 1
+        cursor = self._text_edit.textCursor()
+        cursor.beginEditBlock()
+        cursor.setPosition(i)
+        cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+        cursor.insertText(text[i:])  # replaces the selected (changed) tail
+        cursor.endEditBlock()
 
     def append_word(self, word: str):
         """Insert word with 180ms fade-in animation."""

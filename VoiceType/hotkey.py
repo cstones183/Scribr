@@ -122,6 +122,7 @@ class HotkeyListener:
             self._pynput_target_key = key_map.get(self._key_name, keyboard.Key.alt_r)
             self._pynput_listener = keyboard.Listener(
                 on_press=self._pynput_press,
+                on_release=self._pynput_release,
                 daemon=True,
             )
             self._pynput_listener.start()
@@ -201,6 +202,15 @@ class HotkeyListener:
     def _pynput_press(self, key) -> None:
         if key == self._pynput_target_key:
             self._handle_key_event(True, source="pynput")
+
+    def _pynput_release(self, key) -> None:
+        # Mirror the physical release so the next press registers as a fresh
+        # key-down edge. Without this, if the Quartz poll isn't resetting the
+        # state (e.g. it returns stale/zero state), _key_down stays True and
+        # the second tap is never seen as an edge — so recording won't stop.
+        if key == self._pynput_target_key:
+            with self._lock:
+                self._key_down = False
 
     # ── Shared key event handler ──────────────────────────
 
