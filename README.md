@@ -36,13 +36,24 @@ The build is **Apple Silicon (arm64)** only. Intel Macs need to run from source 
 
 ### Opening it the first time (the security warning is expected)
 
-Scribr is **not code-signed or notarized by Apple**, so the first time you open it macOS will show a warning like *"Scribr can't be opened because Apple cannot check it for malicious software."* This is normal for open-source apps distributed outside the App Store, and it is safe to bypass. You only have to do this once.
+Scribr is **not code-signed or notarized by Apple**, so the first time you open it macOS will warn that *"Apple could not verify Scribr is free of malware."* This is normal for open-source apps distributed outside the App Store, and it is safe to bypass. You only have to do this once.
 
-1. In Finder, open your **Applications** folder and find **Scribr**.
-2. **Right-click** (or Control-click) it and choose **Open**.
-3. In the dialog, click **Open** again.
+First, drag Scribr into your **Applications** folder and double-click it. When the warning appears, click **Done** (not "Move to Bin"). Then use whichever method you prefer:
 
-If you already double-clicked and got the warning with no Open button, go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway** next to the Scribr message.
+**System Settings (recommended on macOS Sequoia and later)**
+1. Open **System Settings → Privacy & Security**.
+2. Scroll to the **Security** section. You'll see *"Scribr" was blocked to protect your Mac.*
+3. Click **Open Anyway** and confirm with Touch ID or your password.
+4. Click **Open** in the final dialog.
+
+**Terminal (quickest)**
+Run this once to remove the quarantine flag, then open Scribr normally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Scribr.app
+```
+
+> Note: on older macOS you could right-click the app and choose **Open** to bypass this. macOS Sequoia (15) and later removed that shortcut, so use one of the methods above.
 
 After that, Scribr launches normally every time. On first launch, grant **Microphone** and **Accessibility / Input Monitoring** when prompted; the welcome screen has a button that takes you straight there.
 

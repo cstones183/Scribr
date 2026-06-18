@@ -79,7 +79,8 @@ jobs:
             This build is Apple Silicon (arm64) only.
 
             **First launch:** Scribr is not signed or notarized by Apple, so macOS
-            will warn that it "can't be checked for malicious software." This is
-            expected and safe to bypass. Right-click Scribr in Applications and
-            choose **Open**, then click **Open** again. (Or allow it under System
-            Settings → Privacy & Security with **Open Anyway**.) You only do this once.
+            will warn that it "could not verify Scribr is free of malware." This is
+            expected and safe to bypass. Double-click Scribr, click **Done**, then
+            open **System Settings → Privacy & Security**, scroll to Security, and
+            click **Open Anyway**. (Or run `xattr -dr com.apple.quarantine
+            /Applications/Scribr.app` in Terminal.) You only do this once.
