@@ -201,6 +201,11 @@ def font_serif(size: int, weight: int = 400, italic: bool = False) -> QFont:
     else:
         f.setWeight(QFont.Weight.Normal)
     f.setItalic(italic)
+    # Keep glyph advances fractional so word/letter spacing stays even on
+    # HiDPI/Retina displays. With the default hinting Qt rounds advances to
+    # whole device pixels, which makes the transcript text look unevenly
+    # spaced ("justified"). PreferNoHinting fixes that on Retina.
+    f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
     return f
 
 
@@ -215,6 +220,7 @@ def font_sans(size: int, weight: int = 400) -> QFont:
         f.setWeight(QFont.Weight.Medium)
     else:
         f.setWeight(QFont.Weight.Normal)
+    f.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
     return f
 
 
