@@ -30,7 +30,7 @@
 
 ## ⬇️ Download
 
-Grab the latest packaged build from the [Releases page](https://github.com/cstones183/Voice-to-Text/releases/latest). Download `Scribr.dmg`, open it, and drag Scribr into Applications.
+Grab the latest packaged build from the [Releases page](https://github.com/cstones183/Scribr/releases/latest). Download `Scribr.dmg`, open it, and drag Scribr into Applications.
 
 The build is **Apple Silicon (arm64)** only. Intel Macs need to run from source (see Getting Started).
 

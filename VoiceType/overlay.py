@@ -1006,7 +1006,7 @@ class NotepadWidget(QWidget):
     def _on_copy_close(self):
         self.copyCloseClicked.emit(self.get_text())
 
-    def set_text(self, text: str, **kwargs):
+    def set_text(self, text: str, animate: bool = True, **kwargs):
         if text == self._prev_text:
             return
         self._prev_text = text
@@ -1017,7 +1017,18 @@ class NotepadWidget(QWidget):
         words = len(text.split())
         self._stats_label.setText(f"{words} WORDS")
 
-        self._animate_text_popup()
+        if animate:
+            self._animate_text_popup()
+        else:
+            # Live incremental updates: update in place at full scale/opacity.
+            # Re-running the scale-bounce on every snapshot distorts inter-word
+            # spacing and flickers the text, so skip it during streaming.
+            self.text_opacity = 1.0
+            self._text_scale = 1.0
+            self._text_translate_y = 0.0
+            vp = self._text_edit.viewport()
+            if vp:
+                vp.update()
 
     def append_word(self, word: str):
         """Insert word with 180ms fade-in animation."""
@@ -1284,6 +1295,7 @@ class OverlayWindow(QWidget):
 
     cancelRecordingClicked = pyqtSignal()
     notepadCloseClicked = pyqtSignal()
+    retryRecordingClicked = pyqtSignal()
     rms_received = pyqtSignal(float)
     transcript_received = pyqtSignal(str)
     request_ai_format = pyqtSignal(str)
@@ -1656,6 +1668,8 @@ class OverlayWindow(QWidget):
         self._notepad.copyCloseClicked.connect(self._on_copy_close)
         self._notepad.closeClicked.connect(self._on_notepad_close_clicked)
         self._notepad.aiToggleClicked.connect(self._on_ai_toggle_request)
+        # Retry: discard this result and start a fresh recording (handled by app).
+        self._notepad.retryClicked.connect(self.retryRecordingClicked)
 
     @pyqtSlot(float)
     def _on_rms(self, value: float):
@@ -1675,7 +1689,7 @@ class OverlayWindow(QWidget):
             self._live_words = words
             preview = " ".join(words[-4:])
             self._live_text.setText(preview)
-            self._notepad.set_text(text)
+            self._notepad.set_text(text, animate=False)
 
     def _on_notepad_close_clicked(self):
         """Handle notepad X button — stop recording if active, then dismiss."""

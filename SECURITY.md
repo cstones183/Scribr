@@ -26,5 +26,9 @@ snippets of transcribed text. Turn it off again afterwards.
 
 ## Reporting a vulnerability
 
-Please do not open a public issue for security problems. Email the maintainer
-directly and allow reasonable time for a fix before any public disclosure.
+Please do not open a public issue for security problems. Instead, contact the
+maintainer directly and allow reasonable time for a fix before any public
+disclosure:
+
+- Email: info@mitchellandstones.com
+- LinkedIn: https://www.linkedin.com/in/christopher-stones/

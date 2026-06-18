@@ -146,6 +146,7 @@ class ScribrApp:
         self._overlay.ai_mode_toggled.connect(self._history.update_ai_mode)
         self._overlay.cancelRecordingClicked.connect(self._on_recording_cancelled)
         self._overlay.notepadCloseClicked.connect(self._on_recording_cancelled)
+        self._overlay.retryRecordingClicked.connect(self._on_retry)
 
         # ── Groq live transcription timer ──
         self._groq_timer = QTimer()
@@ -216,11 +217,11 @@ class ScribrApp:
     #  RECORDING START / STOP (main thread)
     # ─────────────────────────────────────────────────────
 
-    def _start_recording(self) -> None:
+    def _start_recording(self, force_fresh: bool = False) -> None:
         if self._is_recording:
             return
-            
-        if self._overlay.state == OverlayState.RESULT_NOTEPAD:
+
+        if not force_fresh and self._overlay.state == OverlayState.RESULT_NOTEPAD:
             self._is_continuing = True
             self._previous_text = self._overlay.get_notepad_text()
         else:
@@ -290,12 +291,22 @@ class ScribrApp:
         # run on the main thread or it freezes the spinner we just showed.
         self._transcribe_in_background(None)
 
+    def _on_retry(self) -> None:
+        """Retry button: discard the current result and start a fresh recording."""
+        if self._is_recording:
+            return
+        log.info("Retry → starting a fresh recording")
+        # Drop any deferred auto-paste from the result we're discarding.
+        self._pending_paste_context = False
+        self._start_recording(force_fresh=True)
+
     def _on_recording_cancelled(self) -> None:
         """User cancelled the recording via the UI (✕) button."""
         if not self._is_recording:
             return
         log.info("Recording cancelled by user")
         self._is_recording = False
+        self._pending_paste_context = False
         self._groq_timer.stop()
         self._recorder.stop()  # Ignore the returned bytes
         self._hotkey.reset()   # Sync toggle state back to idle
@@ -434,6 +445,18 @@ class ScribrApp:
     #  FINAL RESULT (main thread)
     # ─────────────────────────────────────────────────────
 
+    def _auto_paste_still_valid(self) -> bool:
+        """Whether a deferred Cmd+V should still fire.
+
+        The auto-paste is scheduled with a short delay; by the time it runs the
+        user may have moved on (clicked Retry to start a new recording, cancelled,
+        or dismissed the result). Only paste if we're still showing that result.
+        """
+        return (
+            not self._is_recording
+            and self._overlay.state == OverlayState.RESULT_NOTEPAD
+        )
+
     def _on_ai_format_completed(self, text: str) -> None:
         log.debug("AI format completed, pending_paste=%s", self._pending_paste_context)
         self._overlay.on_ai_format_completed(text)
@@ -447,6 +470,9 @@ class ScribrApp:
         if self._pending_paste_context:
             self._pending_paste_context = False
             def _do_paste():
+                if not self._auto_paste_still_valid():
+                    log.debug("Skipping stale AI auto-paste (state=%s)", self._overlay.state)
+                    return
                 self._keyboard.press(Key.cmd)
                 self._keyboard.press('v')
                 self._keyboard.release('v')
@@ -497,6 +523,9 @@ class ScribrApp:
         # If in a typing context AND we are not doing AI formatting, paste immediately
         if is_typing and not is_ai and not is_empty:
             def _do_paste():
+                if not self._auto_paste_still_valid():
+                    log.debug("Skipping stale auto-paste (state=%s)", self._overlay.state)
+                    return
                 # Simulate Cmd+V (macOS) to paste clipboard contents
                 self._keyboard.press(Key.cmd)
                 self._keyboard.press('v')
