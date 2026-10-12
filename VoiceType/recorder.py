@@ -30,8 +30,13 @@ class Recorder:
         wav_bytes = rec.stop()
     """
 
-    def __init__(self, on_device_error: Callable[[str], None] | None = None):
+    def __init__(
+        self,
+        on_device_error: Callable[[str], None] | None = None,
+        on_auto_stop: Callable[[], None] | None = None,
+    ):
         self._on_device_error = on_device_error
+        self._on_auto_stop = on_auto_stop  # called on the timer thread
         self._stream: sd.InputStream | None = None
         self._frames: list[bytes] = []
         self._is_recording = False
@@ -41,8 +46,8 @@ class Recorder:
         self._on_rms_update: Callable[[float], None] | None = None
         self._auto_stopped_wav: bytes | None = None
 
-    def start(self, on_rms_update: Callable[[float], None]):
-        """Begin recording from the default input device.
+    def start(self, on_rms_update: Callable[[float], None]) -> bool:
+        """Begin recording from the default input device. Returns True on success.
 
         Args:
             on_rms_update: Called ~30 times/sec with a normalised RMS
@@ -50,7 +55,7 @@ class Recorder:
                 responsible for marshalling to the UI thread.
         """
         if self._is_recording:
-            return
+            return False
 
         self._frames = []
         self._rms_history.clear()
@@ -68,14 +73,22 @@ class Recorder:
             self._stream.start()
             self._is_recording = True
         except (sd.PortAudioError, OSError) as e:
+            # Stream may have opened before start() failed — don't leak it.
+            if self._stream is not None:
+                try:
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
             if self._on_device_error:
                 self._on_device_error(f"Microphone not available: {e}")
-            return
+            return False
 
         # Auto-stop safety timer
         self._auto_stop_timer = threading.Timer(MAX_RECORDING_SECONDS, self._auto_stop)
         self._auto_stop_timer.daemon = True
         self._auto_stop_timer.start()
+        return True
 
     def stop(self) -> bytes:
         """Stop recording and return WAV bytes.
@@ -110,6 +123,9 @@ class Recorder:
 
         self._is_recording = False
         self._auto_stopped_wav = self._build_wav()
+        # Tell the app, otherwise the UI keeps showing "recording" forever.
+        if self._on_auto_stop:
+            self._on_auto_stop()
 
     def _cancel_auto_stop(self):
         if self._auto_stop_timer is not None:

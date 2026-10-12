@@ -65,10 +65,11 @@ class _ThreadBridge(QObject):
 
     final_transcript = pyqtSignal(str)
     live_transcript = pyqtSignal(str)
-    transcription_error = pyqtSignal()
+    transcription_error = pyqtSignal(str)
     ai_format_completed = pyqtSignal(str)
     ai_format_failed = pyqtSignal()
     hotkey_toggled = pyqtSignal(bool)  # True = start, False = stop
+    auto_stopped = pyqtSignal()  # recorder hit its 5-minute cap
 
 
 class ScribrApp:
@@ -111,7 +112,11 @@ class ScribrApp:
         self._menubar.show()
 
         # ── Recorder ──
-        self._recorder = Recorder(on_device_error=self._on_device_error)
+        self._recorder = Recorder(
+            on_device_error=self._on_device_error,
+            # Fires on a timer thread; bridge exists by the time 5 min have passed.
+            on_auto_stop=lambda: self._bridge.auto_stopped.emit(),
+        )
 
         # ── Hotkey ──
         self._hotkey = HotkeyListener(
@@ -119,7 +124,6 @@ class ScribrApp:
             on_permission_error=self._on_permission_error,
             key_name=self._settings.get("hotkey", "alt_r"),
         )
-        self._hotkey.start()
 
         # ── First-launch permission checks ──
         self._check_permissions()
@@ -138,8 +142,9 @@ class ScribrApp:
         self._bridge.live_transcript.connect(self._overlay.update_transcript)
         self._bridge.transcription_error.connect(self._on_transcription_error)
         self._bridge.ai_format_completed.connect(self._on_ai_format_completed)
-        self._bridge.ai_format_failed.connect(self._overlay.on_ai_format_failed)
+        self._bridge.ai_format_failed.connect(self._on_ai_format_failed)
         self._bridge.hotkey_toggled.connect(self._on_hotkey_action)
+        self._bridge.auto_stopped.connect(self._stop_recording)
 
         # Connect overlay's request signal
         self._overlay.request_ai_format.connect(self._on_ai_format_requested)
@@ -161,6 +166,11 @@ class ScribrApp:
         self._pending_paste_context = False  # cached typing-context for deferred AI paste
         self._cached_typing_context = False  # set on pynput thread before signal delivery
         self._total_duration: float = 0.0
+        self._showing_error = False  # notepad currently shows an error notice
+        self._finalizing = False  # previous recording still being torn down / transcribed
+
+        # Start listening only once every attribute the callbacks touch exists.
+        self._hotkey.start()
 
         # ── Watch for system theme changes ──
         self._watch_appearance_changes()
@@ -220,15 +230,25 @@ class ScribrApp:
     def _start_recording(self, force_fresh: bool = False) -> None:
         if self._is_recording:
             return
+        if self._finalizing:
+            # The mic is still closing and the last result hasn't landed; starting
+            # now would record nothing and then replay the old audio.
+            log.info("Ignoring start: previous recording still finalizing")
+            self._hotkey.set_active(False)
+            return
 
         if not force_fresh and self._overlay.state == OverlayState.RESULT_NOTEPAD:
             self._is_continuing = True
-            self._previous_text = self._overlay.get_notepad_text()
+            # After an error the notepad holds a warning, not a transcript —
+            # keep the text we had before the failure instead.
+            if not self._showing_error:
+                self._previous_text = self._overlay.get_notepad_text()
         else:
             self._is_continuing = False
             self._previous_text = ""
             self._total_duration = 0.0
             
+        self._showing_error = False
         self._is_recording = True
         self._recording_start = time.time()
         # Keep the hotkey's toggle state in lock-step so the next tap stops.
@@ -245,8 +265,9 @@ class ScribrApp:
         self._overlay.transition_to(OverlayState.RECORDING, is_continuing=self._is_continuing)
         self._menubar.set_recording(True)
 
-        self._recorder.start(on_rms_update=self._overlay.update_rms)
-        log.debug("Recorder started (is_recording=%s)", self._recorder.is_recording)
+        if not self._recorder.start(on_rms_update=self._overlay.update_rms):
+            return  # _on_device_error already reset state and showed why
+        log.debug("Recorder started")
 
         # If using Groq, start the live transcription timer
         if isinstance(self._transcriber, GroqTranscriber):
@@ -278,6 +299,12 @@ class ScribrApp:
             self._overlay.transition_to(OverlayState.IDLE)
             self._menubar.set_idle()
             return
+
+        # Focus may have moved into a text field after recording started.
+        self._overlay.set_is_typing_context(
+            self._overlay.is_typing_context or self._cached_typing_context
+        )
+        self._finalizing = True
 
         # Immediately confirm the stop in the UI — swap the running clock for the
         # finalizing spinner so it never looks like recording is still going.
@@ -382,15 +409,16 @@ class ScribrApp:
                 self._bridge.final_transcript.emit(final_text)
             else:
                 log.warning("Empty transcription result")
-                self._bridge.transcription_error.emit()
+                # Empty string → _on_final_transcript shows "No speech detected".
+                self._bridge.final_transcript.emit("")
         except TranscriptionError as e:
             log.warning("Transcription failed: %s", e)
-            self._bridge.transcription_error.emit()
+            self._bridge.transcription_error.emit(f"Transcription failed: {e}")
         except Exception:
             # Any other failure (e.g. audio teardown) must still clear the
             # finalizing spinner, otherwise the UI looks hung forever.
             log.exception("Unexpected error finalizing recording")
-            self._bridge.transcription_error.emit()
+            self._bridge.transcription_error.emit("Something went wrong finishing that recording.")
 
     # ─────────────────────────────────────────────────────
     #  TEXT CORRECTION (called in background thread)
@@ -403,8 +431,8 @@ class ScribrApp:
                 uk = self._settings.get("language", "auto") == "en-uk"
                 result = self._corrector.clean_text(text, use_uk_english=uk)
                 self._stats.add_cost(0.0005)
-                return result
-            except CorrectionError as e:
+                return result or text
+            except Exception as e:  # never lose a good transcript to cleanup
                 log.warning("Corrector failed: %s", e)
         return text
 
@@ -437,7 +465,7 @@ class ScribrApp:
                 self._bridge.ai_format_completed.emit(result)
             else:
                 self._bridge.ai_format_failed.emit()
-        except CorrectionError as e:
+        except Exception as e:
             log.warning("AI Format error: %s", e)
             self._bridge.ai_format_failed.emit()
 
@@ -469,25 +497,41 @@ class ScribrApp:
         # Use cached context — overlay state may have drifted during AI processing
         if self._pending_paste_context:
             self._pending_paste_context = False
-            def _do_paste():
-                if not self._auto_paste_still_valid():
-                    log.debug("Skipping stale AI auto-paste (state=%s)", self._overlay.state)
-                    return
-                self._keyboard.press(Key.cmd)
-                self._keyboard.press('v')
-                self._keyboard.release('v')
-                self._keyboard.release(Key.cmd)
-                log.debug("Auto-pasted AI text via Cmd+V")
-                self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
+            self._schedule_paste(text)
 
-            QTimer.singleShot(50, _do_paste)
+    def _on_ai_format_failed(self) -> None:
+        self._overlay.on_ai_format_failed()
+        # Clipboard still holds the raw transcript; paste that rather than nothing.
+        if self._pending_paste_context:
+            self._pending_paste_context = False
+            raw = QApplication.clipboard().text() if QApplication.clipboard() else ""
+            if raw:
+                self._schedule_paste(raw)
+
+    def _schedule_paste(self, text: str) -> None:
+        """Cmd+V the clipboard after a short delay, unless the user has moved on."""
+        def _do_paste():
+            if not self._auto_paste_still_valid():
+                log.debug("Skipping stale auto-paste (state=%s)", self._overlay.state)
+                return
+            self._keyboard.press(Key.cmd)
+            self._keyboard.press('v')
+            self._keyboard.release('v')
+            self._keyboard.release(Key.cmd)
+            log.debug("Auto-pasted via Cmd+V")
+            self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
+
+        # Small delay to ensure clipboard is populated before pasting
+        QTimer.singleShot(50, _do_paste)
 
     def _on_final_transcript(self, text: str) -> None:
         # Log length only at INFO to keep transcript text out of release logs.
+        self._finalizing = False
         log.info("Final transcript received (%d chars)", len(text))
         log.debug("Final transcript: %r", text[:80])
 
         is_empty = not text.strip()
+        self._showing_error = is_empty
         if is_empty:
             text = "⚠️ No speech detected. Please try again."
 
@@ -522,33 +566,33 @@ class ScribrApp:
 
         # If in a typing context AND we are not doing AI formatting, paste immediately
         if is_typing and not is_ai and not is_empty:
-            def _do_paste():
-                if not self._auto_paste_still_valid():
-                    log.debug("Skipping stale auto-paste (state=%s)", self._overlay.state)
-                    return
-                # Simulate Cmd+V (macOS) to paste clipboard contents
-                self._keyboard.press(Key.cmd)
-                self._keyboard.press('v')
-                self._keyboard.release('v')
-                self._keyboard.release(Key.cmd)
-                log.debug("Auto-pasted raw text via Cmd+V")
-                self._overlay.transition_to(OverlayState.RESULT_FIELD, text=text)
-
-            # Small delay to ensure clipboard is populated before pasting
-            QTimer.singleShot(50, _do_paste)
+            self._schedule_paste(text)
 
         self._menubar.set_idle()
         log.debug("Overlay state: %s", self._overlay.state)
 
-    def _on_transcription_error(self) -> None:
-        self._overlay.transition_to(OverlayState.IDLE)
+    def _on_transcription_error(self, msg: str) -> None:
+        # Never fail silently: show why, and keep any text we were appending to.
+        self._finalizing = False
+        self._pending_paste_context = False
+        self._showing_error = True
+        notice = f"⚠️ {msg}\nPlease try again."
+        if self._is_continuing and self._previous_text:
+            notice = f"{self._previous_text}\n\n{notice}"
+        self._overlay.transition_to(
+            OverlayState.RESULT_NOTEPAD,
+            text=notice,
+            duration=self._total_duration,
+            ai_default=False,  # don't send the error message off for AI formatting
+        )
         self._menubar.set_idle()
 
     def _on_device_error(self, msg: str) -> None:
         log.error("Device error: %s", msg)
         self._is_recording = False
-        self._overlay.transition_to(OverlayState.IDLE)
-        self._menubar.set_idle()
+        self._hotkey.set_active(False)  # otherwise the next tap is a no-op "stop"
+        self._groq_timer.stop()
+        self._on_transcription_error(msg)
 
     def _on_permission_error(self, msg: str) -> None:
         log.error("Permission error: %s", msg)
@@ -666,6 +710,7 @@ class ScribrApp:
             log.warning("Could not open logs: %s", e)
 
     def _on_history_clicked(self, entry: dict) -> None:
+        self._showing_error = False
         log.debug("History item clicked: %s...", entry.get("text", "")[:20])
         self._overlay.transition_to(
             OverlayState.RESULT_NOTEPAD,

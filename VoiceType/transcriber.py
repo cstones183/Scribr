@@ -8,9 +8,30 @@ import io
 import json
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions"
 OPENAI_ENDPOINT = "https://api.openai.com/v1/audio/transcriptions"
+
+
+def retrying_session(api_key: str) -> requests.Session:
+    """Session that retries dropped connections, including on POST.
+
+    Pooled keep-alive connections go stale while the app sits idle; the next
+    request then dies instantly with RemoteDisconnected / BrokenPipe. Without
+    a retry that silently lost whole recordings.
+    """
+    session = requests.Session()
+    session.headers["Authorization"] = f"Bearer {api_key}"
+    retry = Retry(
+        total=2, connect=2, read=1, status=0,
+        allowed_methods=None,  # None = retry any verb; these POSTs are safe to resend
+        backoff_factor=0.3,
+        raise_on_status=False,
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
 
 
 class TranscriptionError(Exception):
@@ -32,8 +53,7 @@ class GroqTranscriber:
 
     def __init__(self, api_key: str):
         self._api_key = api_key
-        self._session = requests.Session()
-        self._session.headers["Authorization"] = f"Bearer {api_key}"
+        self._session = retrying_session(api_key)
 
     def transcribe(
         self,
@@ -110,8 +130,7 @@ class OpenAITranscriber:
 
     def __init__(self, api_key: str):
         self._api_key = api_key
-        self._session = requests.Session()
-        self._session.headers["Authorization"] = f"Bearer {api_key}"
+        self._session = retrying_session(api_key)
 
     def transcribe(
         self,
