@@ -2,7 +2,11 @@
 # Scribr.spec — PyInstaller build configuration
 # Build with:  cd VoiceType && pyinstaller Scribr.spec
 
+import re
 from pathlib import Path
+
+# Read APP_VERSION from settings.py without importing the app.
+APP_VERSION = re.search(r'APP_VERSION = "([^"]+)"', Path("settings.py").read_text()).group(1)
 
 block_cipher = None
 
@@ -82,7 +86,8 @@ app = BUNDLE(
         "CFBundleName": "Scribr",
         "CFBundleDisplayName": "Scribr",
         "CFBundleIdentifier": "com.scribr.app",
-        "CFBundleVersion": "1.0.0",
+        "CFBundleVersion": APP_VERSION,
+        "CFBundleShortVersionString": APP_VERSION,
         "LSUIElement": True,
         "NSHighResolutionCapable": True,
         "NSMicrophoneUsageDescription": (

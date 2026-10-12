@@ -9,6 +9,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+# Single source of truth for the app version (About screen + Scribr.spec read this).
+APP_VERSION = "1.1.0"
+
 # ── Paths ──────────────────────────────────────────────────
 
 APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "Scribr"

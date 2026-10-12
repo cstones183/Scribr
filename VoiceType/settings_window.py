@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from hotkey import key_display_name
-from settings import LANGUAGES, SettingsManager
+from settings import APP_VERSION, LANGUAGES, SettingsManager
 from stats import StatsManager
 from style import (
     RADIUS_CARD,
@@ -1069,7 +1069,7 @@ class SettingsWindow(QWidget):
         v.addWidget(name)
 
         # ── Version ──
-        ver = QLabel(f"Version 1.0.0 \u00b7 Python {platform.python_version()} + PyQt6")
+        ver = QLabel(f"Version {APP_VERSION} \u00b7 Python {platform.python_version()} + PyQt6")
         ver.setFont(font_serif(12, 400, italic=True))
         ver.setStyleSheet(
             f"color: {qcolor_to_rgba(t.text_light)};"
@@ -1205,7 +1205,7 @@ class SettingsWindow(QWidget):
         h = QHBoxLayout(bar)
         h.setContentsMargins(20, 0, 20, 0)
 
-        ver = QLabel("Scribr v1.0 \u00b7 Just tap, talk, and it\u2019s done.")
+        ver = QLabel(f"Scribr v{APP_VERSION} \u00b7 Just tap, talk, and it\u2019s done.")
         ver.setFont(font_serif(11, 400, italic=True))
         ver.setStyleSheet(
             f"color: {qcolor_to_rgba(t.text_light)};"
