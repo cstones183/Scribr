@@ -10,6 +10,7 @@ from enum import Enum, auto
 
 from PyQt6.QtCore import (
     QEasingCurve,
+    QEvent,
     QParallelAnimationGroup,
     QPauseAnimation,
     QPointF,
@@ -130,6 +131,54 @@ class PillWidget(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(pill_path)
 
+        p.end()
+
+
+class OfflineBadge(QWidget):
+    """Round "no internet" badge that sits beside the pill.
+
+    Painted manually like PillWidget (no QGraphicsEffect — see project notes).
+    """
+
+    GAP = 8  # space between pill and badge
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setFixedSize(PILL_HEIGHT, PILL_HEIGHT)
+        self.setToolTip("No internet connection. Recordings are saved and sent when you're back online.")
+
+    def paintEvent(self, event: object) -> None:
+        t = theme()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        # Follow the overlay's fade so the badge never lingers after the pill.
+        p.setOpacity(getattr(self.parent(), "_widget_opacity", 1.0))
+
+        # Circle matching the pill's surface and border
+        p.setPen(QPen(t.border, 1))
+        p.setBrush(t.surface)
+        p.drawEllipse(QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0))
+
+        # Wi-Fi arcs + dot, centred on the badge
+        cx, cy = self.width() / 2, self.height() / 2 + 5
+        pen = QPen(t.amber, 1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        for r in (4.5, 8.5, 12.5):
+            p.drawArc(QRectF(cx - r, cy - r, 2 * r, 2 * r), 45 * 16, 90 * 16)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(t.amber)
+        p.drawEllipse(QPointF(cx, cy), 1.6, 1.6)
+
+        # Slash, with a thin surface-coloured halo so it reads as "crossed out"
+        a, b = QPointF(cx - 9, cy - 13), QPointF(cx + 9, cy + 3)
+        halo = QPen(t.surface, 4)
+        halo.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(halo)
+        p.drawLine(a, b)
+        p.setPen(pen)
+        p.drawLine(a, b)
         p.end()
 
 
@@ -1685,8 +1734,37 @@ class OverlayWindow(QWidget):
         self._notepad.hide()
         self._main_layout.addWidget(self._notepad, 0, Qt.AlignmentFlag.AlignHCenter)
 
+        # ── OFFLINE BADGE (free-floating beside the pill, not in the layout) ──
+        self._offline = False
+        self._offline_badge = OfflineBadge(self)
+        self._offline_badge.hide()
+        self._pill.installEventFilter(self)
+
         self._pill.adjustSize()
         self.adjustSize()
+
+    def eventFilter(self, obj, event):
+        if obj is self._pill and event.type() in (QEvent.Type.Move, QEvent.Type.Resize):
+            self._place_offline_badge()
+        return super().eventFilter(obj, event)
+
+    def _place_offline_badge(self) -> None:
+        g = self._pill.geometry()
+        self._offline_badge.move(g.right() + 1 + OfflineBadge.GAP, g.top())
+
+    def set_offline(self, offline: bool) -> None:
+        """Show/hide the no-internet badge next to the pill."""
+        if offline == self._offline:
+            return
+        self._offline = offline
+        # Widen both side margins equally so the pill stays centred and the
+        # badge has room inside the window.
+        side = 24 + (OfflineBadge.GAP + PILL_HEIGHT if offline else 0)
+        self._main_layout.setContentsMargins(side, 24, side, 24)
+        self._offline_badge.setVisible(offline)
+        self._place_offline_badge()
+        if self.isVisible():
+            self._reposition()
 
     def _connect_signals(self):
         self.rms_received.connect(self._on_rms, Qt.ConnectionType.QueuedConnection)
@@ -2386,7 +2464,11 @@ class OverlayWindow(QWidget):
         else:
             self._hide_notepad_instant()
 
-        self._success_dot.set_color(t.green)
+        label = kwargs.get("label")
+        color = t.amber if label else t.green
+        self._success_label.setText(label or "Typed into field")
+        self._success_label.setStyleSheet(f"color: {qcolor_to_rgba(color)};")
+        self._success_dot.set_color(color)
         self._success_dot.set_static()
         self._set_pill_shadow_idle()
 

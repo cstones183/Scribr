@@ -73,6 +73,7 @@ class _ThreadBridge(QObject):
     auto_stopped = pyqtSignal()  # recorder hit its 5-minute cap
     went_offline = pyqtSignal(bytes, str)  # (wav, text it continues) — queue for resend
     resend_result = pyqtSignal(str, str)  # (final text, error) for a queued recording
+    offline_changed = pyqtSignal(bool)  # drives the no-internet badge beside the pill
 
 
 class ScribrApp:
@@ -150,6 +151,7 @@ class ScribrApp:
         self._bridge.auto_stopped.connect(self._stop_recording)
         self._bridge.went_offline.connect(self._on_went_offline)
         self._bridge.resend_result.connect(self._on_resend_result)
+        self._bridge.offline_changed.connect(self._overlay.set_offline)
 
         # Connect overlay's request signal
         self._overlay.request_ai_format.connect(self._on_ai_format_requested)
@@ -381,6 +383,7 @@ class ScribrApp:
             prompt = "Use UK English spelling and grammar." if uk else ""
             text = self._transcriber.transcribe(wav_bytes, language="en" if uk else language, prompt=prompt)
             log.debug("Groq snapshot result: %r", text[:80] if text else text)
+            self._bridge.offline_changed.emit(False)
             if text is not None:
                 display_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
                 if display_text:
@@ -388,10 +391,7 @@ class ScribrApp:
         except NetworkError:
             log.warning("Live preview: offline")
             self._live_offline = True
-            self._bridge.live_transcript.emit(
-                "📡 No internet connection. Keep talking, your recording will be "
-                "saved and transcribed when you're back online."
-            )
+            self._bridge.offline_changed.emit(True)
         except TranscriptionError as e:
             log.warning("Groq snapshot error: %s", e)
         finally:
@@ -423,6 +423,7 @@ class ScribrApp:
             prompt = "Use UK English spelling and grammar." if uk else ""
             log.info("Transcribing %d bytes (lang=%s)", len(wav_bytes), language)
             text = self._transcriber.transcribe(wav_bytes, language="en" if uk else language, prompt=prompt)
+            self._bridge.offline_changed.emit(False)
             log.debug("Transcription result: %r", text[:100] if text else text)
             if text:
                 text = self._maybe_correct(text)
@@ -617,11 +618,15 @@ class ScribrApp:
     def _on_went_offline(self, wav_bytes: bytes, prefix: str) -> None:
         self._offline_queue.append((wav_bytes, prefix))
         n = len(self._offline_queue)
-        self._on_transcription_error(
-            "No internet connection.",
-            hint=(f"{n} recordings are" if n > 1 else "Your recording is")
-            + " saved and will be transcribed automatically when you're back online.",
+        self._finalizing = False
+        self._pending_paste_context = False
+        # Short pill message + badge instead of a notice in the text area.
+        self._overlay.set_offline(True)
+        self._overlay.transition_to(
+            OverlayState.RESULT_FIELD,
+            label=f"Saved offline{f' ({n})' if n > 1 else ''} · sends when back online",
         )
+        self._menubar.set_idle()
         self._resend_timer.start()
 
     def _try_resend(self) -> None:
@@ -668,6 +673,7 @@ class ScribrApp:
             return
 
         log.info("Queued offline recording transcribed (%d chars)", len(text))
+        self._overlay.set_offline(False)
         self._history.add(text, duration_s=0)
         self._menubar.refresh_after_transcription()
         if busy:
