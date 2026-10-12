@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import io
 import json
+import socket
+import threading
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -38,6 +41,47 @@ class TranscriptionError(Exception):
     """Raised when transcription fails."""
 
     pass
+
+
+class NetworkError(TranscriptionError):
+    """No internet connection: the audio is fine, so it can be resent later."""
+
+
+def is_online(url: str, timeout: float = 3.0) -> bool:
+    """True if the API host resolves within ``timeout`` seconds.
+
+    Offline, macOS DNS lookups block ~25s each and ignore requests' timeout,
+    which (with retries) left the spinner up for 90s. So resolve on a thread
+    with a hard deadline.
+    ponytail: a slow-but-working DNS (>3s) reads as offline; the recording is
+    queued and resent, so the cost is a delay, not lost audio.
+    """
+    host = urlparse(url).hostname
+    found: list[bool] = []
+
+    def _resolve() -> None:
+        try:
+            socket.getaddrinfo(host, 443)
+            found.append(True)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=_resolve, daemon=True)
+    t.start()
+    t.join(timeout)
+    return bool(found)
+
+
+def _post_audio(session: requests.Session, url: str, data: dict, wav_bytes: bytes, timeout: int):
+    if not is_online(url):
+        raise NetworkError("No internet connection")
+    files = {"file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav")}
+    try:
+        return session.post(url, data=data, files=files, timeout=timeout)
+    except requests.ConnectionError as e:
+        raise NetworkError("No internet connection") from e
+    except requests.RequestException as e:
+        raise TranscriptionError(f"Network error: {e}") from e
 
 
 class GroqTranscriber:
@@ -88,19 +132,7 @@ class GroqTranscriber:
         if prompt:
             data["prompt"] = prompt
 
-        files = {
-            "file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav"),
-        }
-
-        try:
-            resp = self._session.post(
-                GROQ_ENDPOINT,
-                data=data,
-                files=files,
-                timeout=30,
-            )
-        except requests.RequestException as e:
-            raise TranscriptionError(f"Network error: {e}") from e
+        resp = _post_audio(self._session, GROQ_ENDPOINT, data, wav_bytes, timeout=30)
 
         if resp.status_code == 429:
             raise TranscriptionError("Rate limited — please wait a moment and try again.")
@@ -152,19 +184,7 @@ class OpenAITranscriber:
         if prompt:
             data["prompt"] = prompt
 
-        files = {
-            "file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav"),
-        }
-
-        try:
-            resp = self._session.post(
-                OPENAI_ENDPOINT,
-                data=data,
-                files=files,
-                timeout=60,
-            )
-        except requests.RequestException as e:
-            raise TranscriptionError(f"Network error: {e}") from e
+        resp = _post_audio(self._session, OPENAI_ENDPOINT, data, wav_bytes, timeout=60)
 
         if resp.status_code == 401:
             raise TranscriptionError("Invalid OpenAI API key.")

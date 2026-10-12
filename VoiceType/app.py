@@ -52,6 +52,7 @@ from welcome_window import WelcomeWindow
 from transcriber import (
     GroqTranscriber,
     OpenAITranscriber,
+    NetworkError,
     TranscriptionError,
 )
 
@@ -70,6 +71,8 @@ class _ThreadBridge(QObject):
     ai_format_failed = pyqtSignal()
     hotkey_toggled = pyqtSignal(bool)  # True = start, False = stop
     auto_stopped = pyqtSignal()  # recorder hit its 5-minute cap
+    went_offline = pyqtSignal(bytes, str)  # (wav, text it continues) — queue for resend
+    resend_result = pyqtSignal(str, str)  # (final text, error) for a queued recording
 
 
 class ScribrApp:
@@ -145,6 +148,8 @@ class ScribrApp:
         self._bridge.ai_format_failed.connect(self._on_ai_format_failed)
         self._bridge.hotkey_toggled.connect(self._on_hotkey_action)
         self._bridge.auto_stopped.connect(self._stop_recording)
+        self._bridge.went_offline.connect(self._on_went_offline)
+        self._bridge.resend_result.connect(self._on_resend_result)
 
         # Connect overlay's request signal
         self._overlay.request_ai_format.connect(self._on_ai_format_requested)
@@ -157,6 +162,16 @@ class ScribrApp:
         self._groq_timer = QTimer()
         self._groq_timer.timeout.connect(self._on_groq_tick)
         self._groq_pending = False
+        self._live_offline = False  # stop live snapshots once we know we're offline
+
+        # ── Offline queue: recordings made without internet, resent later ──
+        # ponytail: in memory only, lost if Scribr quits while offline. Write the
+        # WAVs to disk if that turns out to matter.
+        self._offline_queue: list[tuple[bytes, str]] = []
+        self._resend_busy = False
+        self._resend_timer = QTimer()
+        self._resend_timer.setInterval(10_000)
+        self._resend_timer.timeout.connect(self._try_resend)
 
         # ── State ──
         self._is_recording = False
@@ -249,6 +264,7 @@ class ScribrApp:
             self._total_duration = 0.0
             
         self._showing_error = False
+        self._live_offline = False
         self._is_recording = True
         self._recording_start = time.time()
         # Keep the hotkey's toggle state in lock-step so the next tap stops.
@@ -346,7 +362,7 @@ class ScribrApp:
 
     def _on_groq_tick(self) -> None:
         log.debug("Groq tick: recording=%s pending=%s", self._is_recording, self._groq_pending)
-        if not self._is_recording or self._groq_pending:
+        if not self._is_recording or self._groq_pending or self._live_offline:
             return
         wav_snapshot = self._recorder.get_wav_snapshot()
         if not wav_snapshot or len(wav_snapshot) < 100:
@@ -371,6 +387,13 @@ class ScribrApp:
                 display_text = f"{self._previous_text} {text}".strip() if self._is_continuing else text
                 if display_text:
                     self._bridge.live_transcript.emit(display_text)
+        except NetworkError:
+            log.warning("Live preview: offline")
+            self._live_offline = True
+            self._bridge.live_transcript.emit(
+                "📡 No internet connection. Keep talking, your recording will be "
+                "saved and transcribed when you're back online."
+            )
         except TranscriptionError as e:
             log.warning("Groq snapshot error: %s", e)
         finally:
@@ -411,6 +434,10 @@ class ScribrApp:
                 log.warning("Empty transcription result")
                 # Empty string → _on_final_transcript shows "No speech detected".
                 self._bridge.final_transcript.emit("")
+        except NetworkError:
+            log.warning("Transcription failed: offline, queueing %d bytes", len(wav_bytes))
+            prefix = self._previous_text if self._is_continuing else ""
+            self._bridge.went_offline.emit(wav_bytes, prefix)
         except TranscriptionError as e:
             log.warning("Transcription failed: %s", e)
             self._bridge.transcription_error.emit(f"Transcription failed: {e}")
@@ -571,12 +598,12 @@ class ScribrApp:
         self._menubar.set_idle()
         log.debug("Overlay state: %s", self._overlay.state)
 
-    def _on_transcription_error(self, msg: str) -> None:
+    def _on_transcription_error(self, msg: str, hint: str = "Please try again.") -> None:
         # Never fail silently: show why, and keep any text we were appending to.
         self._finalizing = False
         self._pending_paste_context = False
         self._showing_error = True
-        notice = f"⚠️ {msg}\nPlease try again."
+        notice = f"⚠️ {msg}\n{hint}"
         if self._is_continuing and self._previous_text:
             notice = f"{self._previous_text}\n\n{notice}"
         self._overlay.transition_to(
@@ -585,6 +612,76 @@ class ScribrApp:
             duration=self._total_duration,
             ai_default=False,  # don't send the error message off for AI formatting
         )
+        self._menubar.set_idle()
+
+    # ─────────────────────────────────────────────────────
+    #  OFFLINE QUEUE (resend when the connection returns)
+    # ─────────────────────────────────────────────────────
+
+    def _on_went_offline(self, wav_bytes: bytes, prefix: str) -> None:
+        self._offline_queue.append((wav_bytes, prefix))
+        n = len(self._offline_queue)
+        self._on_transcription_error(
+            "No internet connection.",
+            hint=(f"{n} recordings are" if n > 1 else "Your recording is")
+            + " saved and will be transcribed automatically when you're back online.",
+        )
+        self._resend_timer.start()
+
+    def _try_resend(self) -> None:
+        if not self._offline_queue:
+            self._resend_timer.stop()
+            return
+        # Don't compete with a live recording for the overlay.
+        if self._resend_busy or self._is_recording or self._finalizing:
+            return
+        self._resend_busy = True
+        wav_bytes, prefix = self._offline_queue[0]
+        threading.Thread(
+            target=self._resend_worker, args=(wav_bytes, prefix), daemon=True
+        ).start()
+
+    def _resend_worker(self, wav_bytes: bytes, prefix: str) -> None:
+        try:
+            language = self._settings.get("language", "auto")
+            uk = language == "en-uk"
+            prompt = "Use UK English spelling and grammar." if uk else ""
+            text = self._transcriber.transcribe(wav_bytes, language="en" if uk else language, prompt=prompt)
+            text = self._maybe_correct(text) if text else ""
+            self._bridge.resend_result.emit(f"{prefix} {text}".strip(), "")
+        except NetworkError:
+            self._resend_busy = False  # still offline; next tick tries again
+        except Exception as e:
+            self._bridge.resend_result.emit("", str(e) or type(e).__name__)
+
+    def _on_resend_result(self, text: str, error: str) -> None:
+        self._resend_busy = False
+        if self._offline_queue:
+            self._offline_queue.pop(0)
+        if not self._offline_queue:
+            self._resend_timer.stop()
+        busy = self._is_recording or self._finalizing
+
+        if error or not text:
+            log.warning("Queued recording could not be transcribed: %s", error or "no speech")
+            if not busy:
+                self._on_transcription_error(
+                    "Couldn't transcribe a saved offline recording." if error
+                    else "No speech found in a saved offline recording."
+                )
+            return
+
+        log.info("Queued offline recording transcribed (%d chars)", len(text))
+        self._history.add(text, duration_s=0)
+        self._menubar.refresh_after_transcription()
+        if busy:
+            return  # it's in History; don't hijack the current recording
+        # Copy but never auto-paste: focus has moved on since it was recorded.
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(text)
+        self._showing_error = False
+        self._overlay.transition_to(OverlayState.RESULT_NOTEPAD, text=text, ai_default=False)
         self._menubar.set_idle()
 
     def _on_device_error(self, msg: str) -> None:
