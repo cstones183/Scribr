@@ -208,15 +208,15 @@ class ScribrApp:
         openai_key = s.get("openai_api_key", "")
 
         if groq_key:
-            self._transcriber = GroqTranscriber(api_key=groq_key)
+            self._transcriber = GroqTranscriber(api_key=groq_key, on_cost=self._stats.add_cost)
         elif openai_key:
-            self._transcriber = OpenAITranscriber(api_key=openai_key)
+            self._transcriber = OpenAITranscriber(api_key=openai_key, on_cost=self._stats.add_cost)
         else:
             self._transcriber = None
 
         # Corrector uses the OpenAI key — needed for both ai_cleanup and AI format mode.
         if openai_key:
-            self._corrector = Corrector(api_key=openai_key)
+            self._corrector = Corrector(api_key=openai_key, on_cost=self._stats.add_cost)
         else:
             self._corrector = None
 
@@ -303,10 +303,8 @@ class ScribrApp:
 
         duration = time.time() - self._recording_start
         self._total_duration += duration
-        api_cost = 0.0
-        if isinstance(self._transcriber, OpenAITranscriber):
-            api_cost = (duration / 60.0) * 0.006
-        self._stats.add_clip(duration, api_cost)
+        # API cost is tracked per request by the transcriber/corrector callbacks.
+        self._stats.add_clip(duration)
         log.info("Stopped recording (%.1fs, total=%.1fs)", duration, self._total_duration)
 
         if self._transcriber is None:
@@ -457,7 +455,6 @@ class ScribrApp:
             try:
                 uk = self._settings.get("language", "auto") == "en-uk"
                 result = self._corrector.clean_text(text, use_uk_english=uk)
-                self._stats.add_cost(0.0005)
                 return result or text
             except Exception as e:  # never lose a good transcript to cleanup
                 log.warning("Corrector failed: %s", e)
@@ -487,7 +484,6 @@ class ScribrApp:
             result = self._corrector.format_for_llm(text, style=style, use_uk_english=uk)
             if result:
                 log.debug("AI Format result: %r", result[:80])
-                self._stats.add_cost(0.0005)
                 self._history.update_ai_text(text, result)
                 self._bridge.ai_format_completed.emit(result)
             else:

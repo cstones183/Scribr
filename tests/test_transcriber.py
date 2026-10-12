@@ -36,3 +36,17 @@ def test_connection_error_maps_to_network_error() -> None:
     with patch.object(transcriber, "is_online", return_value=True):
         with pytest.raises(NetworkError):
             g.transcribe(b"x" * 200)
+
+
+def test_groq_reports_cost_with_10s_minimum() -> None:
+    costs: list[float] = []
+    g = GroqTranscriber(api_key="k", on_cost=costs.append)
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"text": "hi"}
+    g._session = MagicMock(post=MagicMock(return_value=resp))
+    one_sec = b"\x00" * (44 + 32000)
+    sixty_sec = b"\x00" * (44 + 32000 * 60)
+    with patch.object(transcriber, "is_online", return_value=True):
+        g.transcribe(one_sec)
+        g.transcribe(sixty_sec)
+    assert costs == pytest.approx([10 / 3600 * 0.04, 60 / 3600 * 0.04])

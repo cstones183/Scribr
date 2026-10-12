@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -19,6 +20,8 @@ class StatsManager:
         self._month_clips = 0
         self._month_duration_s = 0.0
         self._month_api_cost = 0.0
+        # Workers (live preview, cleanup) add costs concurrently with the main thread.
+        self._lock = threading.RLock()
         self._ensure_dir()
         self._load()
         self._check_rollover()
@@ -58,6 +61,10 @@ class StatsManager:
                 pass
 
     def save(self) -> None:
+        with self._lock:
+            self._save()
+
+    def _save(self) -> None:
         self._ensure_dir()
         data = {
             "current_month": self._current_month,
@@ -86,16 +93,18 @@ class StatsManager:
 
     def add_clip(self, duration_s: float, cost: float = 0.0) -> None:
         """Increment current month's stats and save persistently."""
-        self._check_rollover()
-        self._month_clips += 1
-        self._month_duration_s += duration_s
-        self._month_api_cost += cost
-        self.save()
+        with self._lock:
+            self._check_rollover()
+            self._month_clips += 1
+            self._month_duration_s += duration_s
+            self._month_api_cost += cost
+            self.save()
 
     def add_cost(self, cost: float) -> None:
         """Add incremental API cost (e.g. for ChatGPT cleanup) persistently."""
         if cost <= 0:
             return
-        self._check_rollover()
-        self._month_api_cost += cost
-        self.save()
+        with self._lock:
+            self._check_rollover()
+            self._month_api_cost += cost
+            self.save()

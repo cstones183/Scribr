@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import platform
 from pathlib import Path
 
-from PyQt6.QtCore import QPoint, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPoint, QRectF, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import (
+    QDesktopServices,
     QPainter,
     QPainterPath,
     QPen,
@@ -25,6 +27,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from hotkey import key_display_name
 from settings import LANGUAGES, SettingsManager
 from stats import StatsManager
 from style import (
@@ -37,6 +40,15 @@ from style import (
     theme,
 )
 from widgets import PositionChip, SegmentedControl, ToastWidget, ToggleSwitch
+
+GITHUB_URL = "https://github.com/cstones183/Scribr"
+
+
+def _format_cost(usd: float) -> str:
+    """Two decimals, but don't show real (tiny) spend as $0.00."""
+    if 0 < usd < 0.01:
+        return "<$0.01"
+    return f"${usd:.2f}"
 
 # ════════════════════════════════════════════════════════════
 #  STYLESHEET GENERATORS
@@ -1057,7 +1069,7 @@ class SettingsWindow(QWidget):
         v.addWidget(name)
 
         # ── Version ──
-        ver = QLabel("Version 1.0.0 \u00b7 Python 3.12 + PyQt6")
+        ver = QLabel(f"Version 1.0.0 \u00b7 Python {platform.python_version()} + PyQt6")
         ver.setFont(font_serif(12, 400, italic=True))
         ver.setStyleSheet(
             f"color: {qcolor_to_rgba(t.text_light)};"
@@ -1073,7 +1085,8 @@ class SettingsWindow(QWidget):
         # widget at sizeHint width, causing height to be halved and text to clip.
         # Instead, center via a wrapper HBoxLayout with stretches on both sides.
         desc = QLabel(
-            "Tap Right \u2325 to record. Tap again to transcribe.\n"
+            f"Tap {key_display_name(self._settings.get('hotkey', 'alt_r'))} to record. "
+            "Tap again to transcribe.\n"
             "Your words appear ready to share."
         )
         desc.setFont(font_serif(14, 400, italic=True))
@@ -1111,7 +1124,7 @@ class SettingsWindow(QWidget):
         stats = [
             (str(self._stats.clips), "THIS MONTH", True),
             (f"{int(avg_s // 60)}:{int(avg_s % 60):02d}", "AVG CLIP", False),
-            (f"${self._stats.cost:.2f}", "API COST", False),
+            (_format_cost(self._stats.cost), "API COST", False),
         ]
         for val, label, accent in stats:
             cell = QWidget()
@@ -1150,12 +1163,13 @@ class SettingsWindow(QWidget):
         lh.setSpacing(8)
         lh.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        for label in [
-            "\U0001f4c4  Docs",
-            "\U0001f41b  Report Bug",
-            "\u2b50  GitHub",
+        for label, url in [
+            ("\U0001f4c4  Docs", f"{GITHUB_URL}#readme"),
+            ("\U0001f41b  Report Bug", f"{GITHUB_URL}/issues/new"),
+            ("\u2b50  GitHub", GITHUB_URL),
         ]:
             btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
             btn.setFont(font_sans(12, 500))
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setStyleSheet(

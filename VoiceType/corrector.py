@@ -5,12 +5,16 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 
 import requests
 
 from transcriber import retrying_session
 
 OPENAI_CHAT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
+# gpt-4o-mini USD per million tokens (Oct 2026).
+GPT4O_MINI_USD_PER_M_IN = 0.15
+GPT4O_MINI_USD_PER_M_OUT = 0.60
 
 SYSTEM_PROMPT = (
     "You are a dictation cleanup filter, not an assistant. The user message is a raw "
@@ -119,7 +123,8 @@ class Corrector:
         # -> "Hello."
     """
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, on_cost: Callable[[float], None] | None = None) -> None:
+        self._on_cost = on_cost  # called with USD for every billed request
         self._session = retrying_session(api_key)
         self._session.headers["Content-Type"] = "application/json"
 
@@ -160,6 +165,7 @@ class Corrector:
                 f"OpenAI API error {resp.status_code}: {resp.text[:200]}"
             )
 
+        self._report_cost(resp)  # billed even if the guards below reject it
         cleaned = _parse_reply(resp)
 
         # ponytail: crude heuristics that catch the model writing an email/answer
@@ -220,4 +226,17 @@ class Corrector:
                 f"OpenAI API error {resp.status_code}: {resp.text[:200]}"
             )
 
+        self._report_cost(resp)
         return _parse_reply(resp)
+
+    def _report_cost(self, resp) -> None:
+        if not self._on_cost:
+            return
+        try:
+            usage = resp.json().get("usage") or {}
+            self._on_cost(
+                usage.get("prompt_tokens", 0) / 1e6 * GPT4O_MINI_USD_PER_M_IN
+                + usage.get("completion_tokens", 0) / 1e6 * GPT4O_MINI_USD_PER_M_OUT
+            )
+        except Exception:
+            pass  # cost display is best-effort; never break cleanup over it

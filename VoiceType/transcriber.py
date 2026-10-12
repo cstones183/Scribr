@@ -8,6 +8,7 @@ import io
 import json
 import socket
 import threading
+from collections.abc import Callable
 from urllib.parse import urlparse
 
 import requests
@@ -84,6 +85,17 @@ def _post_audio(session: requests.Session, url: str, data: dict, wav_bytes: byte
         raise TranscriptionError(f"Network error: {e}") from e
 
 
+# USD per hour of audio sent. Groq bills at least 10s per request.
+# Rates as of Oct 2026; update if provider pricing changes.
+GROQ_USD_PER_HOUR = 0.04  # whisper-large-v3-turbo
+GROQ_MIN_BILLED_S = 10
+OPENAI_USD_PER_HOUR = 0.36  # whisper-1, $0.006/min
+
+
+def _audio_seconds(wav_bytes: bytes) -> float:
+    return max(0, len(wav_bytes) - 44) / (16000 * 2)  # 16kHz mono 16-bit, 44-byte header
+
+
 class GroqTranscriber:
     """Transcribes audio using Groq's ultra-fast Whisper API.
 
@@ -95,9 +107,10 @@ class GroqTranscriber:
         text = transcriber.transcribe(wav_bytes)
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, on_cost: Callable[[float], None] | None = None):
         self._api_key = api_key
         self._session = retrying_session(api_key)
+        self._on_cost = on_cost  # called with USD for every billed request
 
     def transcribe(
         self,
@@ -142,6 +155,9 @@ class GroqTranscriber:
 
         if resp.status_code != 200:
             raise TranscriptionError(f"Groq API error {resp.status_code}: {resp.text[:200]}")
+        if self._on_cost:
+            billed = max(_audio_seconds(wav_bytes), GROQ_MIN_BILLED_S)
+            self._on_cost(billed / 3600 * GROQ_USD_PER_HOUR)
 
         try:
             result = resp.json()
@@ -160,9 +176,10 @@ class OpenAITranscriber:
         text = transcriber.transcribe(wav_bytes)
     """
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, on_cost: Callable[[float], None] | None = None):
         self._api_key = api_key
         self._session = retrying_session(api_key)
+        self._on_cost = on_cost  # called with USD for every billed request
 
     def transcribe(
         self,
@@ -191,6 +208,8 @@ class OpenAITranscriber:
 
         if resp.status_code != 200:
             raise TranscriptionError(f"OpenAI API error {resp.status_code}: {resp.text[:200]}")
+        if self._on_cost:
+            self._on_cost(_audio_seconds(wav_bytes) / 3600 * OPENAI_USD_PER_HOUR)
 
         try:
             result = resp.json()
