@@ -29,7 +29,7 @@ def retrying_session(api_key: str) -> requests.Session:
     session = requests.Session()
     session.headers["Authorization"] = f"Bearer {api_key}"
     retry = Retry(
-        total=2, connect=2, read=1, status=0,
+        total=2, connect=1, read=1, status=0,
         allowed_methods=None,  # None = retry any verb; these POSTs are safe to resend
         backoff_factor=0.3,
         raise_on_status=False,
@@ -73,12 +73,17 @@ def is_online(url: str, timeout: float = 3.0) -> bool:
     return bool(found)
 
 
+CONNECT_TIMEOUT_S = 5
+
+
 def _post_audio(session: requests.Session, url: str, data: dict, wav_bytes: bytes, timeout: int):
     if not is_online(url):
         raise NetworkError("No internet connection")
     files = {"file": ("recording.wav", io.BytesIO(wav_bytes), "audio/wav")}
     try:
-        return session.post(url, data=data, files=files, timeout=timeout)
+        # Short connect timeout: on Wi-Fi with no internet the TCP connect just
+        # hangs, and the default would make the user wait 30s+ per attempt.
+        return session.post(url, data=data, files=files, timeout=(CONNECT_TIMEOUT_S, timeout))
     except requests.ConnectionError as e:
         raise NetworkError("No internet connection") from e
     except requests.RequestException as e:

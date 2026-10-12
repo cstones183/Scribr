@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 import requests
 
-from transcriber import retrying_session
+from transcriber import CONNECT_TIMEOUT_S, retrying_session
 
 OPENAI_CHAT_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 # gpt-4o-mini USD per million tokens (Oct 2026).
@@ -155,7 +155,7 @@ class Corrector:
             resp = self._session.post(
                 OPENAI_CHAT_ENDPOINT,
                 json=payload,
-                timeout=15,
+                timeout=(CONNECT_TIMEOUT_S, 15),
             )
         except requests.RequestException as e:
             raise CorrectionError(f"Network error: {e}") from e
@@ -216,7 +216,7 @@ class Corrector:
             resp = self._session.post(
                 OPENAI_CHAT_ENDPOINT,
                 json=payload,
-                timeout=20,
+                timeout=(CONNECT_TIMEOUT_S, 20),
             )
         except requests.RequestException as e:
             raise CorrectionError(f"Network error: {e}") from e
