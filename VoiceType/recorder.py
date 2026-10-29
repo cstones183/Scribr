@@ -63,6 +63,28 @@ class Recorder:
         self._auto_stopped_wav = None
 
         try:
+            self._open_stream()
+        except (sd.PortAudioError, OSError):
+            # PortAudio caches the device list at init, so after a mic change
+            # (AirPods, sleep/wake, USB) the stale default fails with
+            # PaErrorCode -9986. Refresh PortAudio and try once more.
+            try:
+                sd._terminate()
+                sd._initialize()
+                self._open_stream()
+            except (sd.PortAudioError, OSError) as e:
+                if self._on_device_error:
+                    self._on_device_error(f"Microphone not available: {e}")
+                return False
+
+        # Auto-stop safety timer
+        self._auto_stop_timer = threading.Timer(MAX_RECORDING_SECONDS, self._auto_stop)
+        self._auto_stop_timer.daemon = True
+        self._auto_stop_timer.start()
+        return True
+
+    def _open_stream(self) -> None:
+        try:
             self._stream = sd.InputStream(
                 samplerate=SAMPLE_RATE,
                 channels=CHANNELS,
@@ -72,7 +94,7 @@ class Recorder:
             )
             self._stream.start()
             self._is_recording = True
-        except (sd.PortAudioError, OSError) as e:
+        except Exception:
             # Stream may have opened before start() failed — don't leak it.
             if self._stream is not None:
                 try:
@@ -80,15 +102,7 @@ class Recorder:
                 except Exception:
                     pass
                 self._stream = None
-            if self._on_device_error:
-                self._on_device_error(f"Microphone not available: {e}")
-            return False
-
-        # Auto-stop safety timer
-        self._auto_stop_timer = threading.Timer(MAX_RECORDING_SECONDS, self._auto_stop)
-        self._auto_stop_timer.daemon = True
-        self._auto_stop_timer.start()
-        return True
+            raise
 
     def stop(self) -> bytes:
         """Stop recording and return WAV bytes.
